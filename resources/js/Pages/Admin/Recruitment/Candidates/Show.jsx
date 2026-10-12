@@ -15,8 +15,26 @@ const completedStatuses = new Set(['PREQUALIFIED', 'ADMITTED', 'WAITING', 'DISCA
 const sexLabels = { WOMAN: 'Mujer', MAN: 'Hombre' };
 const identityStatusLabels = { NOT_STARTED: 'Sin iniciar', IN_PROGRESS: 'En progreso', IN_REVIEW: 'En revisión manual', APPROVED: 'Identidad verificada', DECLINED: 'No aprobada', EXPIRED: 'Sesión vencida', ABANDONED: 'No completada' };
 
+const englishLevelBadges = {
+    A1: { label: 'A1 · Inicial', className: 'border-[#7d3144] bg-[#321622] text-[#ffb1bd]' },
+    A2: { label: 'A2 · Básico', className: 'border-[#8a6229] bg-[#342515] text-[#f2cf91]' },
+    B1: { label: 'B1 · Intermedio', className: 'border-[#8a7b2e] bg-[#352f16] text-[#f5e59b]' },
+    B2: { label: 'B2 · Intermedio alto', className: 'border-[#2c6d95] bg-[#102e42] text-[#9edcff]' },
+    C1: { label: 'C1 · Avanzado', className: 'border-[#713080] bg-[#32133d] text-[#edb4f8]' },
+    C2: { label: 'C2 · Dominio avanzado', className: 'border-[#2d8669] bg-[#12372e] text-[#9af2cb]' },
+    NATIVE: { label: 'Nativo', className: 'border-[#20817c] bg-[#103936] text-[#92eee2]' },
+};
+
+function EnglishLevelBadge({ level }) {
+    const badge = englishLevelBadges[level] || { label: level, className: 'border-[#51445a] bg-[#201b29] text-[#c8bfd0]' };
+
+    return <span className={`inline-flex w-fit rounded-full border px-2.5 py-1 text-[11px] font-medium ${badge.className}`}>{badge.label}</span>;
+}
+
 function Detail({ label, value }) {
-    return <div><dt className="text-[10px] uppercase tracking-[.18em] text-[#7f8495]">{label}</dt><dd className="mt-2 text-sm text-[#f2edf5]">{value || 'No indicado'}</dd></div>;
+    const isEnglishLevel = label === 'Nivel de inglés' && value && value !== 'No aplica';
+
+    return <div className="min-w-0"><dt className="text-[10px] uppercase tracking-[.18em] text-[#7f8495]">{label}</dt><dd className="mt-2 break-words text-sm text-[#f2edf5] [overflow-wrap:anywhere]">{isEnglishLevel ? <EnglishLevelBadge level={value} /> : value || 'No indicado'}</dd></div>;
 }
 
 function ActivationModal({ open, form, onClose, onSubmit }) {
@@ -66,7 +84,7 @@ function ProcessStatusCarousel({ currentStatus, onChange }) {
 
     useEffect(() => setSelectedIndex(activeIndex), [activeIndex]);
 
-    return <div className="rounded-xl border border-[#292d39] bg-[#11131c]/90 p-5 shadow-[0_18px_55px_rgba(0,0,0,.16)] sm:p-6">
+    return <div data-tour="candidate-process" className="rounded-xl border border-[#292d39] bg-[#11131c]/90 p-5 shadow-[0_18px_55px_rgba(0,0,0,.16)] sm:p-6">
         <div className="flex items-center justify-between gap-4">
             <div><p className="text-[10px] uppercase tracking-[.18em] text-[#d56bea]">Estado del proceso</p><p className="mt-2 text-xs text-[#969baa]">La etapa activa se actualiza para todo el equipo en tiempo real.</p></div>
             <span className="rounded-full border border-[#9142a7]/60 bg-[#3d164d] px-3 py-1.5 text-xs text-[#f0c1fa]">{cleanStatusLabel(selectedStage?.[1])}</span>
@@ -104,6 +122,7 @@ export default function Show({ candidate }) {
     const contractingRecommendation = candidate.status === 'ADMITTED';
     const inductionRecommendation = candidate.status === 'INDUCTION';
     const readyToActivateRecommendation = candidate.status === 'READY_TO_ACTIVATE';
+    const interviewRecommendation = candidate.status === 'PREQUALIFIED';
 
     useEffect(() => subscribeToRealtime((event, eventName) => {
         if (Number(event.candidate_id) !== Number(candidate.id)) return;
@@ -150,16 +169,17 @@ export default function Show({ candidate }) {
                     <div className="flex flex-wrap items-center gap-2"><span className="w-fit rounded-full border border-[#9142a7]/50 bg-[#3d164d] px-3 py-1.5 text-xs text-[#f0c1fa]">{candidateStatusLabels[candidate.status] || candidate.status}</span><button type="button" onClick={() => setEditing((value) => !value)} className="inline-flex items-center gap-2 rounded-lg border border-[#49334f] px-3 py-2 text-xs text-[#e6c4ed] transition hover:border-[#a84bc2] hover:text-white"><FiEdit3 size={14} />{editing ? 'Cerrar edición' : 'Editar datos'}</button>{candidate.status !== 'DISCARDED' && <button type="button" onClick={() => setDiscarding(true)} className="inline-flex items-center gap-2 rounded-lg border border-[#673344] px-3 py-2 text-xs text-[#ffb1bd] transition hover:border-[#bb4c66] hover:bg-[#321622]"><FiTrash2 size={14} />Descartar</button>}</div>
                 </div>
                 <AdminApplicationEditModal open={editing} onClose={() => setEditing(false)} endpoint={`/admin/candidates/${candidate.id}`} person={candidate.lead} candidateType={candidate.candidate_type} title="Editar información del candidato" />
-                <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,.65fr)]">
-                    <section className="rounded-xl border border-[#292d39] bg-[#11131c]/90 p-6 shadow-[0_18px_55px_rgba(0,0,0,.16)] backdrop-blur-xl sm:p-8">
+                <div className="mt-8 grid items-start gap-6 min-[1100px]:grid-cols-[minmax(0,1fr)_minmax(280px,.7fr)]">
+                    <section data-tour="candidate-profile" className="min-w-0 rounded-xl border border-[#292d39] bg-[#11131c]/90 p-6 shadow-[0_18px_55px_rgba(0,0,0,.16)] backdrop-blur-xl sm:p-8">
                         <div className="flex items-center gap-3 border-b border-[#292d39] pb-5"><span className="grid h-10 w-10 place-items-center rounded-full bg-[#3c1749] text-[#e2a0f1]"><FiUser size={18} /></span><div><p className="text-sm font-medium text-white">Información de la persona</p><p className="mt-1 text-xs text-[#7f8495]">Datos enviados en el onboarding público.</p></div></div>
-                        <dl className="mt-7 grid gap-x-8 gap-y-7 sm:grid-cols-2"><Detail label="Nombre completo" value={fullName} /><Detail label="Sexo" value={sexLabels[candidate.lead.sex] || candidate.lead.sex} /><Detail label="Email" value={candidate.lead.email} /><Detail label="WhatsApp" value={candidate.lead.phone} /><Detail label="Ciudad" value={candidate.lead.city} /><Detail label="País" value={candidate.lead.country} /><Detail label="Fecha de nacimiento" value={candidate.lead.birth_date ? formatFriendlyDate(candidate.lead.birth_date) : null} /><Detail label="Habla inglés" value={candidate.lead.speaks_english ? 'Sí' : 'No'} /><Detail label="Nivel de inglés" value={candidate.lead.speaks_english ? candidate.lead.english_level : 'No aplica'} /><Detail label="Disponibilidad" value={candidate.lead.availability} /><Detail label="Modalidad" value={candidate.lead.work_mode} /></dl>
+                        <dl className="mt-7 grid gap-x-8 gap-y-7 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><Detail label="Nombre completo" value={fullName} /><Detail label="Sexo" value={sexLabels[candidate.lead.sex] || candidate.lead.sex} /><Detail label="Email" value={candidate.lead.email} /><Detail label="WhatsApp" value={candidate.lead.phone} /><Detail label="Ciudad" value={candidate.lead.city} /><Detail label="País" value={candidate.lead.country} /><Detail label="Fecha de nacimiento" value={candidate.lead.birth_date ? formatFriendlyDate(candidate.lead.birth_date) : null} /><Detail label="Habla inglés" value={candidate.lead.speaks_english ? 'Sí' : 'No'} /><Detail label="Nivel de inglés" value={candidate.lead.speaks_english ? candidate.lead.english_level : 'No aplica'} /><Detail label="Disponibilidad" value={candidate.lead.availability} /><Detail label="Modalidad" value={candidate.lead.work_mode} /></dl>
                         {candidate.lead.candidate_type === 'MONITOR' && <Detail label="Años de experiencia" value={({ 1: '1 año', 2: '2 años', '3_PLUS': '3 años o más' }[candidate.lead.experience_years] || candidate.lead.experience_years)} />}
                         {candidate.lead.experience && <div className="mt-8 border-t border-[#292d39] pt-7"><p className="text-[10px] uppercase tracking-[.18em] text-[#7f8495]">Experiencia demostrable</p><p className="mt-3 whitespace-pre-line text-sm leading-7 text-[#c3c6d1]">{candidate.lead.experience}</p></div>}
                         <div className="mt-8 border-t border-[#292d39] pt-7"><ProcessStatusCarousel currentStatus={candidate.status} onChange={(status) => changeStatus({ target: { value: status } })} />{candidate.discard_reason && <p className="mt-4 rounded-lg border border-[#673344] bg-[#321622]/50 px-3 py-2 text-xs leading-5 text-[#ffb1bd]"><strong>Motivo del descarte:</strong> {candidate.discard_reason}</p>}</div>
                     </section>
-                    <aside className="rounded-xl border border-[#292d39] bg-[#11131c]/90 p-6 shadow-[0_18px_55px_rgba(0,0,0,.16)] backdrop-blur-xl sm:p-7">
-                        <div className={`space-y-8 ${admissionRecommendation || activationRecommendation || contractingRecommendation || inductionRecommendation || readyToActivateRecommendation ? 'admission-active' : ''}`}>
+                    <aside data-tour="candidate-actions" className="min-w-0 rounded-xl border border-[#292d39] bg-[#11131c]/90 p-6 shadow-[0_18px_55px_rgba(0,0,0,.16)] backdrop-blur-xl sm:p-7">
+                        <div className={`space-y-8 ${interviewRecommendation || admissionRecommendation || activationRecommendation || contractingRecommendation || inductionRecommendation || readyToActivateRecommendation ? 'admission-active' : ''}`}>
+                            {interviewRecommendation && <div className="rounded-xl border border-[#2c6d95] bg-gradient-to-r from-[#102e42] to-[#151522] p-5 shadow-[0_12px_35px_rgba(44,109,149,.12)] sm:p-6"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#1b5275] text-[#9edcff]"><FiCalendar size={17} /></span><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#9edcff]">Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">Programar entrevista</h2><p className="mt-1 text-xs leading-5 text-[#b5d9ed]">La precalificación está completa. Genera horarios disponibles y envía la invitación para que la candidata elija su cita.</p></div></div><Link href="/admin/interviews" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1b5275] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#2776a7]">Ir a entrevistas <FiArrowRight size={15} /></Link></div>}
                             {inductionRecommendation && <div className="rounded-xl border border-[#b8863b] bg-gradient-to-r from-[#342515] to-[#151522] p-5 shadow-[0_12px_35px_rgba(184,134,59,.12)] sm:p-6"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b4e22] text-[#ffe1a1]">→</span><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#ffe1a1]">Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">Confirmar inducción</h2><p className="mt-1 text-xs leading-5 text-[#dfc99e]">Verifica que la inducción terminó para preparar el perfil para su activación.</p></div></div><button type="button" onClick={() => changeStatus({ target: { value: 'READY_TO_ACTIVATE' } })} className="mt-5 w-full rounded-lg bg-[#a8792f] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#c18e3c]">Confirmar inducción completada →</button></div>}
                             {readyToActivateRecommendation && <div className="rounded-xl border border-[#2d8669] bg-gradient-to-r from-[#12372e] to-[#151522] p-5 shadow-[0_12px_35px_rgba(45,134,105,.12)] sm:p-6"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#1e5b4a] text-[#9af2cb]">✓</span><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#9af2cb]">Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">Activar perfil</h2><p className="mt-1 text-xs leading-5 text-[#b9d8cb]">La inducción fue completada y el perfil ya está listo para activarse.</p></div></div><button type="button" onClick={() => changeStatus({ target: { value: 'ACTIVE' } })} className="mt-5 w-full rounded-lg bg-[#2d8669] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#3ba47f]">Activar perfil →</button></div>}
                             {contractingRecommendation && <div className="rounded-xl border border-[#b8863b] bg-gradient-to-r from-[#342515] to-[#151522] p-5 shadow-[0_12px_35px_rgba(184,134,59,.12)] sm:p-6"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b4e22] text-[#ffe1a1]">→</span><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#ffe1a1]">Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">Iniciar contratación</h2><p className="mt-1 text-xs leading-5 text-[#dfc99e]">Envía los requisitos documentales y pasa el perfil a En espera para programar la contratación física.</p></div></div><button type="button" onClick={startContracting} disabled={contractingForm.processing} className="mt-5 w-full rounded-lg bg-[#a8792f] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#c18e3c]">{contractingForm.processing ? 'Enviando…' : 'Contactar y enviar requisitos →'}</button>{contractingForm.errors.contracting && <p className="mt-3 text-xs text-[#ffb1bd]">{contractingForm.errors.contracting}</p>}</div>}

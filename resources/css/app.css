@@ -132,6 +132,38 @@ input[type='file']::file-selector-button:hover {
     height: 0;
 }
 
+/* Reusable thin scrollbar for modals, panels and other contained content. */
+.velvet-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #713080 transparent;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+}
+
+.velvet-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+.velvet-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.velvet-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: #713080;
+}
+
+.velvet-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #a92ad8;
+}
+
+.velvet-scrollbar::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
 /* El historial crece dentro de su propio panel sin modificar la altura de la tarjeta. */
 aside > div.mt-7.space-y-6 {
     height: 360px;
@@ -1562,4 +1594,39 @@ section.mt-6.rounded-xl.border > form + div.mt-5.space-y-2::before {
 }
 .admission-active > div:nth-child(3) {
     display: none;
+}
+
+.velvet-driver-popover.driver-popover {
+    max-width: 340px;
+    border: 1px solid #713080;
+    border-radius: 14px;
+    background: #15111d;
+    color: #e9e3ef;
+    box-shadow: 0 22px 55px rgba(0, 0, 0, .48);
+}
+
+.velvet-driver-popover .driver-popover-title {
+    color: #fff;
+    font-family: Georgia, serif;
+    font-size: 1.25rem;
+}
+
+.velvet-driver-popover .driver-popover-description,
+.velvet-driver-popover .driver-popover-progress-text {
+    color: #b9b2c5;
+}
+
+.velvet-driver-popover .driver-popover-next-btn,
+.velvet-driver-popover .driver-popover-done-btn {
+    border: 0;
+    border-radius: 7px;
+    background: #9f35b9;
+    color: #fff;
+    text-shadow: none;
+}
+
+.velvet-driver-popover .driver-popover-prev-btn,
+.velvet-driver-popover .driver-popover-close-btn {
+    color: #d7bfde;
+    text-shadow: none;
 }

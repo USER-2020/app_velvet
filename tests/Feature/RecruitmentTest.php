@@ -30,7 +30,7 @@ class RecruitmentTest extends TestCase
 
     private function applicationPayload(string $type = 'MODEL'): array
     {
-        return ['candidate_type' => $type, 'first_name' => 'Laura', 'last_name' => 'Gomez', 'sex' => 'WOMAN', 'phone' => '3001234567', 'email' => "laura-{$type}@example.com", 'city' => 'Bogota', 'birth_date' => '1998-01-01', 'experience' => 'Experiencia previa', 'availability' => 'Tiempo completo', 'work_mode' => $type === 'MONITOR' ? 'En estudio' : 'Presencial', 'source' => 'Instagram', 'data_consent' => true];
+        return ['candidate_type' => $type, 'first_name' => 'Laura', 'last_name' => 'Gomez', 'sex' => 'WOMAN', 'phone' => '3001234567', 'email' => "laura-{$type}@example.com", 'country' => 'Colombia', 'city' => 'Bogota', 'birth_date' => '1998-01-01', 'experience' => 'Experiencia previa', 'experience_years' => '2', 'speaks_english' => true, 'english_level' => 'B2', 'availability' => 'Tiempo completo', 'work_mode' => 'En estudio', 'source' => 'Instagram', 'data_consent' => true];
     }
 
     public function test_public_model_application_creates_a_lead_with_tracking(): void
@@ -91,6 +91,22 @@ class RecruitmentTest extends TestCase
             ->has('pipeline', 8)
             ->has('chart')
             ->where('filters.type', 'MODEL'));
+    }
+
+    public function test_workflow_board_reflects_the_current_contracting_and_activation_stages(): void
+    {
+        $user = User::factory()->create()->assignRole('super_admin');
+
+        $this->actingAs($user)
+            ->get('/admin/workflows')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Admin/Recruitment/Workflows/Index')
+                ->where('flows.0.nodes.6.key', 'WAITING')
+                ->where('flows.0.nodes.7.key', 'CONTRACTING')
+                ->where('flows.0.nodes.8.key', 'ONBOARDING')
+                ->where('flows.1.nodes.0.key', 'ONBOARDING')
+                ->where('flows.1.branches.0.from', 'ONBOARDING'));
     }
 
     public function test_model_directory_only_shows_admitted_candidates(): void
@@ -157,7 +173,7 @@ class RecruitmentTest extends TestCase
         $this->get($formUrl)->assertOk()->assertInertia(fn ($page) => $page
             ->component('Public/Prequalification')
             ->where('candidate.initial.availability', 'Tiempo completo')
-            ->where('candidate.initial.work_mode', 'Presencial')
+            ->where('candidate.initial.work_mode', 'En estudio')
             ->where('candidate.initial.experience', 'Experiencia previa'));
 
         $this->post($formUrl, [
@@ -169,7 +185,13 @@ class RecruitmentTest extends TestCase
             'has_equipment' => true,
             'identity_document' => UploadedFile::fake()->create('documento.pdf', 200, 'application/pdf'),
             'accept_terms' => true,
-        ])->assertOk()->assertInertia(fn ($page) => $page->component('Public/PrequalificationSuccess'));
+        ])->assertRedirect('/prequalification/completada');
+
+        $this->get('/prequalification/completada')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Public/PrequalificationSuccess')
+                ->where('candidate.code', $candidate->code));
 
         $this->assertDatabaseHas('candidates', ['id' => $candidate->id, 'status' => 'PREQUALIFIED']);
         $this->assertDatabaseHas('lead_documents', ['lead_id' => $lead->id, 'original_name' => 'documento.pdf']);
@@ -228,7 +250,12 @@ class RecruitmentTest extends TestCase
         Mail::assertSent(InterviewInvitationMail::class, function (InterviewInvitationMail $mail) use (&$url) { $url = $mail->bookingUrl; return true; });
         $this->get($url)->assertOk()->assertInertia(fn ($page) => $page->component('Public/InterviewBooking')->has('slots', 2));
         $slot = InterviewSlot::first();
-        $this->post($url, ['slot_id' => $slot->id])->assertOk()->assertInertia(fn ($page) => $page->component('Public/InterviewBookingSuccess'));
+        $this->post($url, ['slot_id' => $slot->id])->assertRedirect('/entrevista/completada');
+        $this->get('/entrevista/completada')
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Public/InterviewBookingSuccess')
+                ->where('candidate.code', $candidate->code));
         $this->assertDatabaseHas('interview_slots', ['id' => $slot->id, 'status' => 'BOOKED']);
         $this->assertDatabaseHas('interviews', ['candidate_id' => $candidate->id, 'status' => 'SCHEDULED', 'interview_slot_id' => $slot->id]);
         Mail::assertSent(InterviewScheduledMail::class);

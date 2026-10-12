@@ -109,7 +109,14 @@ class RecruitmentController extends Controller
         ]);
     }
 
-    public function storePrequalification(Request $request, Candidate $candidate, string $token): Response
+    public function prequalificationSuccess(Request $request): Response
+    {
+        return Inertia::render('Public/PrequalificationSuccess', [
+            'candidate' => $request->session()->get('prequalification_completed'),
+        ]);
+    }
+
+    public function storePrequalification(Request $request, Candidate $candidate, string $token): Response|RedirectResponse
     {
         $this->validatePrequalificationLink($candidate, $token);
 
@@ -191,8 +198,9 @@ class RecruitmentController extends Controller
             ],
         ]);
 
-        return Inertia::render('Public/PrequalificationSuccess', [
-            'candidate' => ['name' => $candidate->lead->full_name, 'code' => $candidate->code],
+        return to_route('prequalification.success')->with('prequalification_completed', [
+            'name' => $candidate->lead->full_name,
+            'code' => $candidate->code,
         ]);
     }
 
@@ -448,12 +456,22 @@ class RecruitmentController extends Controller
             ->map(fn ($total) => (int) $total)
             ->all();
 
-        $status = fn (string $key, string $label, string $description, string $tone = 'purple') => [
+        $status = fn (string $key, string $label, string $description, string $tone = 'purple', ?string $from = null) => [
             'key' => $key,
             'label' => $label,
             'description' => $description,
             'count' => $counts[$key] ?? 0,
             'tone' => $tone,
+            'from' => $from,
+            'kind' => 'status',
+        ];
+        $step = fn (string $key, string $label, string $description, string $tone = 'purple', ?string $from = null) => [
+            'key' => $key,
+            'label' => $label,
+            'description' => $description,
+            'tone' => $tone,
+            'from' => $from,
+            'kind' => 'operation',
         ];
 
         return Inertia::render('Admin/Recruitment/Workflows/Index', [
@@ -469,34 +487,139 @@ class RecruitmentController extends Controller
                         $status('INTERVIEW', 'Entrevista', 'Cita y evaluación inicial', 'blue'),
                         $status('EVALUATION', 'Evaluación', 'Revisión del equipo', 'blue'),
                         $status('ADMITTED', 'Admitido', 'Ingreso aprobado', 'green'),
+                        $status('WAITING', 'En espera', 'Requisitos de contratación', 'amber'),
+                        $status('CONTRACTING', 'Contratación', 'Formalización del ingreso', 'blue'),
                         $status('ONBOARDING', 'Onboarding', 'Documentación de ingreso', 'green'),
-                        $status('ACTIVE', 'Activo', 'Talento habilitado', 'green'),
                     ],
                     'branches' => [
-                        $status('WAITING', 'En espera', 'Pendiente de decisión', 'amber'),
-                        $status('DISCARDED', 'Descartado', 'No continúa el proceso', 'red'),
+                        $status('DISCARDED', 'Descartado', 'No continúa el proceso', 'red', 'EVALUATION'),
                     ],
                 ],
                 [
                     'id' => 'activation',
                     'name' => 'Activación y permanencia',
-                    'description' => 'Seguimiento posterior a la admisión hasta la activación del talento.',
+                    'description' => 'Seguimiento desde el onboarding hasta la activación operativa del talento.',
                     'nodes' => [
-                        $status('ADMITTED', 'Admitido', 'Ingreso aprobado', 'green'),
                         $status('ONBOARDING', 'Onboarding', 'Documentación de ingreso', 'green'),
-                        $status('CONTRACTING', 'Contratación', 'Formalización', 'blue'),
                         $status('INDUCTION', 'Inducción', 'Preparación inicial', 'blue'),
                         $status('READY_TO_ACTIVATE', 'Listo para activar', 'Revisión final', 'green'),
                         $status('ACTIVE', 'Activo', 'Talento habilitado', 'green'),
                     ],
-                    'branches' => [$status('WITHDRAWN', 'Retirado', 'Proceso cerrado', 'red')],
+                    'branches' => [$status('WITHDRAWN', 'Retirado', 'Proceso cerrado', 'red', 'ONBOARDING')],
+                ],
+                [
+                    'id' => 'prequalification',
+                    'name' => 'Precalificación e identidad',
+                    'description' => 'Cómo se solicita el formulario, se valida la identidad con Didit y se habilita el avance a entrevista.',
+                    'nodes' => [
+                        $step('candidate-ready', 'Candidato elegible', 'Lead convertido y pendiente de requisitos'),
+                        $step('send-form', 'Enviar precalificación', 'Se genera un enlace personal con vencimiento'),
+                        $step('person-completes', 'Completar requisitos', 'La persona actualiza datos y adjunta soporte', 'blue'),
+                        $step('didit', 'Validar en Didit', 'Documento, selfie y mayoría de edad', 'blue'),
+                        $step('review-validation', 'Revisar validación', 'El equipo consulta el resultado en Validaciones', 'amber'),
+                        $status('PREQUALIFIED', 'Precalificado', 'Requisitos completos y aprobados', 'green'),
+                    ],
+                    'branches' => [$step('identity-retry', 'Corregir o repetir', 'Se solicita una nueva validación si Didit la rechaza', 'red', 'didit')],
+                ],
+                [
+                    'id' => 'interviews',
+                    'name' => 'Horarios y entrevistas',
+                    'description' => 'Flujo para crear franjas, invitar al candidato, confirmar la cita y llevarla a evaluación.',
+                    'nodes' => [
+                        $status('PREQUALIFIED', 'Precalificado', 'Perfil listo para entrevista', 'green'),
+                        $step('generate-slots', 'Crear horarios', 'El equipo genera franjas disponibles de una hora', 'blue'),
+                        $step('send-invitation', 'Enviar invitación', 'La persona recibe un enlace para elegir horario'),
+                        $status('INTERVIEW', 'Cita confirmada', 'La franja seleccionada queda reservada', 'blue'),
+                        $step('record-notes', 'Registrar resultado', 'Se guardan notas y evidencias de la entrevista', 'amber'),
+                        $status('EVALUATION', 'Evaluación', 'El equipo decide si admite o no al candidato', 'blue'),
+                    ],
+                    'branches' => [
+                        $step('reschedule', 'Reprogramar', 'Libera la franja y envía nuevos horarios', 'amber', 'INTERVIEW'),
+                        $step('no-show', 'No asistió', 'Se registra la novedad para seguimiento', 'red', 'INTERVIEW'),
+                    ],
+                ],
+                [
+                    'id' => 'contracting',
+                    'name' => 'Contratación y documentos',
+                    'description' => 'Ruta desde la admisión: requisitos, carga y validación documental, cita y paso a onboarding.',
+                    'nodes' => [
+                        $status('ADMITTED', 'Admitido', 'Ingreso aprobado por el equipo', 'green'),
+                        $step('start-contracting', 'Iniciar contratación', 'Se envía el listado de requisitos documentales', 'amber'),
+                        $status('WAITING', 'Esperar soportes', 'La persona carga los documentos solicitados', 'amber'),
+                        $step('verify-documents', 'Verificar documentos', 'Documentos revisa, aprueba o pide corrección', 'blue'),
+                        $step('contract-slots', 'Crear cita', 'Se generan y reservan franjas de contratación'),
+                        $status('CONTRACTING', 'Contratación', 'Cita y formalización en curso', 'blue'),
+                        $status('ONBOARDING', 'Onboarding', 'Requisitos de ingreso completos', 'green'),
+                    ],
+                    'branches' => [$step('document-correction', 'Solicitar corrección', 'La persona vuelve a cargar el soporte requerido', 'red', 'verify-documents')],
+                ],
+                [
+                    'id' => 'rooms',
+                    'name' => 'Rooms y reservas',
+                    'description' => 'Cómo se solicita una room, se confirma su disponibilidad y se registra el uso operativo.',
+                    'nodes' => [
+                        $step('room-available', 'Room disponible', 'Administración configura capacidad y disponibilidad', 'green'),
+                        $step('request-room', 'Solicitar reserva', 'Modelo, monitor o equipo pide una franja'),
+                        $step('confirm-room', 'Confirmar reserva', 'El sistema evita cruces y bloquea el horario', 'blue'),
+                        $step('start-room-use', 'Registrar inicio', 'Se marca el comienzo del uso de la room', 'amber'),
+                        $step('finish-room-use', 'Registrar cierre', 'Se cierra el uso y queda trazabilidad', 'green'),
+                    ],
+                    'branches' => [$step('release-room', 'Cancelar o liberar', 'La franja vuelve a estar disponible', 'red', 'confirm-room')],
+                ],
+                [
+                    'id' => 'calendar',
+                    'name' => 'Calendario y seguimiento',
+                    'description' => 'Flujo de recordatorios internos y fechas clave que se originan desde reclutamiento y operación.',
+                    'nodes' => [
+                        $step('detect-deadline', 'Detectar hito', 'Vencimiento, cita, entrevista o tarea pendiente', 'amber'),
+                        $step('create-event', 'Crear evento', 'Se registra recordatorio o seguimiento en Calendario'),
+                        $step('assign-event', 'Asignar responsable', 'El equipo recibe contexto y fecha de ejecución', 'blue'),
+                        $step('complete-event', 'Completar actividad', 'Se conserva el cierre y la trazabilidad', 'green'),
+                    ],
+                    'branches' => [$step('reschedule-event', 'Editar o reprogramar', 'Se ajusta la fecha sin perder el contexto', 'amber', 'assign-event')],
+                ],
+                [
+                    'id' => 'access',
+                    'name' => 'Accesos y operación',
+                    'description' => 'Cómo se crean cuentas internas, se asignan roles y se mantienen los permisos de cada módulo.',
+                    'nodes' => [
+                        $step('create-user', 'Crear usuario', 'Administración registra la cuenta interna'),
+                        $step('assign-role', 'Asignar rol', 'Roles y permisos determinan los módulos visibles', 'blue'),
+                        $step('activate-access', 'Activar acceso', 'La persona puede ingresar según su perfil', 'green'),
+                        $step('audit-access', 'Revisar actividad', 'Notificaciones e historial apoyan el seguimiento', 'amber'),
+                    ],
+                    'branches' => [$step('suspend-access', 'Suspender acceso', 'Se bloquea el ingreso sin borrar historial', 'red', 'audit-access')],
+                ],
+                [
+                    'id' => 'notifications',
+                    'name' => 'Notificaciones y alertas',
+                    'description' => 'Cómo los cambios importantes de cada módulo llegan al equipo y lo llevan de vuelta al caso correspondiente.',
+                    'nodes' => [
+                        $step('business-event', 'Cambio operativo', 'Una acción en leads, candidatos, documentos, citas o rooms genera un evento', 'blue'),
+                        $step('publish-alert', 'Publicar alerta', 'El sistema actualiza contadores y crea la notificación', 'purple'),
+                        $step('team-receives', 'Equipo recibe aviso', 'La campana y el historial muestran el contexto', 'amber'),
+                        $step('open-related-case', 'Abrir caso relacionado', 'La persona vuelve al perfil o módulo que requiere atención', 'green'),
+                    ],
+                    'branches' => [$step('mark-read', 'Marcar como leída', 'La alerta queda en el historial para consulta posterior', 'green', 'team-receives')],
+                ],
+                [
+                    'id' => 'training',
+                    'name' => 'Datos de prueba e inducción',
+                    'description' => 'Ruta segura para crear escenarios de práctica, entrenar equipos y separar la inducción de la operación real.',
+                    'nodes' => [
+                        $step('prepare-sandbox', 'Preparar sandbox', 'Super administración crea o actualiza datos de entrenamiento', 'purple'),
+                        $step('assign-training-profile', 'Asignar perfil de práctica', 'Modelo o monitor ingresa con alcance controlado', 'blue'),
+                        $step('practice-operation', 'Practicar operación', 'Se ensayan reservas, perfiles y procesos sin tocar datos reales', 'amber'),
+                        $step('activate-real-operation', 'Habilitar operación real', 'Tras completar inducción se activa el perfil productivo', 'green'),
+                    ],
+                    'branches' => [$step('reset-sandbox', 'Reiniciar escenario', 'Los datos de prueba se regeneran para una nueva práctica', 'red', 'practice-operation')],
                 ],
             ],
             'summary' => [
                 'total' => Candidate::count(),
                 'active' => $counts['ACTIVE'] ?? 0,
                 'admitted' => $counts['ADMITTED'] ?? 0,
-                'inProgress' => collect($counts)->only(['CONTACTED', 'PREQUALIFIED', 'INTERVIEW', 'EVALUATION', 'ONBOARDING', 'CONTRACTING', 'INDUCTION', 'READY_TO_ACTIVATE'])->sum(),
+                'inProgress' => collect($counts)->only(['CONTACTED', 'PREQUALIFIED', 'INTERVIEW', 'EVALUATION', 'WAITING', 'CONTRACTING', 'ONBOARDING', 'INDUCTION', 'READY_TO_ACTIVATE'])->sum(),
             ],
         ]);
     }
@@ -775,7 +898,7 @@ class RecruitmentController extends Controller
 
     public function updateLead(Request $request, Lead $lead): RedirectResponse
     {
-        $validated = $request->validate($this->leadDataRules());
+        $validated = $request->validate($this->leadDataRules($request));
         $identityDataChanged = $this->identityDataChanged($validated, $lead);
         $lead->update(Arr::except($validated, ['candidate_type']));
         if ($lead->candidate) {
@@ -1208,7 +1331,7 @@ class RecruitmentController extends Controller
 
     public function updateCandidate(Request $request, Candidate $candidate): RedirectResponse
     {
-        $validated = $request->validate($this->leadDataRules());
+        $validated = $request->validate($this->leadDataRules($request));
         $identityDataChanged = $this->identityDataChanged($validated, $candidate->lead);
         $candidate->lead->update(Arr::except($validated, ['candidate_type']));
         $candidate->update(array_merge(
@@ -1387,7 +1510,7 @@ class RecruitmentController extends Controller
         return preg_replace_callback('/\\b[A-Z][A-Z_]+\\b/', fn (array $match) => $labels[$match[0]] ?? $match[0], $description);
     }
 
-    private function leadDataRules(): array
+    private function leadDataRules(Request $request): array
     {
         return [
             'candidate_type' => ['required', Rule::in(['MODEL', 'MONITOR'])],
@@ -1400,9 +1523,9 @@ class RecruitmentController extends Controller
             'city' => ['required', 'string', 'max:100'],
             'birth_date' => ['nullable', 'required_if:candidate_type,MODEL', 'date', 'before_or_equal:' . now()->subYears(18)->toDateString()],
             'experience' => ['nullable', 'string', 'max:5000'],
-            'experience_years' => [Rule::requiredIf(fn () => $this->input('candidate_type') === 'MONITOR'), 'nullable', Rule::in(['1', '2', '3_PLUS'])],
+            'experience_years' => [Rule::requiredIf(fn () => $request->input('candidate_type') === 'MONITOR'), 'nullable', Rule::in(['1', '2', '3_PLUS'])],
             'speaks_english' => ['sometimes', 'boolean'],
-            'english_level' => [Rule::requiredIf(fn () => $this->boolean('speaks_english')), 'nullable', Rule::in(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'NATIVE'])],
+            'english_level' => [Rule::requiredIf(fn () => $request->boolean('speaks_english')), 'nullable', Rule::in(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'NATIVE'])],
             'motivation' => ['nullable', 'string', 'max:5000'],
             'availability' => ['required', 'string', 'max:100'],
             'work_mode' => ['required', 'string', 'max:100', 'in:En estudio'],

@@ -6,6 +6,17 @@ import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createRoot } from 'react-dom/client';
 import { Toaster, toast } from 'react-hot-toast';
 import { useEffect, useState } from 'react';
+import ProductTour from '@/Components/ProductTour';
+
+function renderInertiaPage({ Component, props, key }) {
+    const child = <Component key={key} {...props} />;
+    let page = child;
+
+    if (typeof Component.layout === 'function') page = Component.layout(child);
+    if (Array.isArray(Component.layout)) page = Component.layout.concat(child).reverse().reduce((children, Layout) => <Layout {...props}>{children}</Layout>);
+
+    return <>{page}<ProductTour /></>;
+}
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -246,7 +257,7 @@ createInertiaApp({
     setup({ el, App, props }) {
         const root = createRoot(el);
 
-        root.render(<><App {...props} /><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /></>);
+        root.render(<><App {...props}>{renderInertiaPage}</App><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /></>);
     },
     progress: {
         color: '#4B5563',

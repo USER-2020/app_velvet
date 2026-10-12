@@ -1,0 +1,66 @@
+name: Feature request
+description: Propose a product improvement or a new platform capability.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user or business problem before proposing a solution. Do not include personal data, credentials, or real documents.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user or business need does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the expected behavior, primary screens, and key actions.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Recruitment
+        - Interviews and scheduling
+        - Onboarding
+        - Operations / Rooms
+        - Workflows
+        - Administration, users, or permissions
+        - Product tours
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: roles
+    attributes:
+      label: Roles and permissions
+      description: State which roles can view, create, edit, or perform this action.
+      placeholder: Human Resources can create; Recruitment can view; only Super Administrators can configure.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] …
+        - [ ] …
+    validations:
+      required: true
+  - type: checkboxes
+    id: considerations
+    attributes:
+      label: Considerations
+      options:
+        - label: A contextual Driver.js tour is required to explain the new flow.
+        - label: Responsive behavior is required.
+        - label: Notifications, email, or real-time behavior is required.
+        - label: A migration or persisted-data change is required.
+

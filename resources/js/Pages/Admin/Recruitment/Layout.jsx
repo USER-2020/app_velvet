@@ -1,6 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
-import { FiBell, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiDatabase, FiFileText, FiGrid, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
+import { FiBell, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiCompass, FiDatabase, FiFileText, FiGrid, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
 import BrandMark from '@/Components/BrandMark';
 import { useAuthorization } from '@/lib/authorization';
 import toast from 'react-hot-toast';
@@ -16,6 +16,7 @@ function notificationHref(item) {
 }
 
 const sections = [
+    { label: 'Guías', items: [['Visitas guiadas', '/admin/guided-tours', FiCompass]] },
     { label: 'Reclutamiento', items: [['Leads', '/admin/leads', FiUsers], ['Candidatos', '/admin/candidates', FiUserCheck], ['Entrevistas', '/admin/interviews', FiCalendar], ['Contratación', '/admin/contracting', FiBriefcase], ['Calendario', '/admin/calendar', FiCalendar], ['Pipeline', '/admin/recruitment', FiGrid]] },
     { label: 'Onboarding', items: [['Procesos', '/admin/processes', FiClipboard], ['Validaciones', '/admin/validations', FiFileText], ['Documentos', '/admin/documents', FiFileText]] },
     { label: 'Personas', items: [['Modelos', '/admin/candidates?type=MODEL', FiUsers], ['Monitores', '/admin/candidates?type=MONITOR', FiBriefcase]] },
@@ -50,6 +51,7 @@ function isActive(label, url) {
     if (label === 'Usuarios') return path === '/admin/users';
     if (label === 'Roles y permisos') return path === '/admin/access';
     if (label === 'Workflows') return path === '/admin/workflows';
+    if (label === 'Visitas guiadas') return path === '/admin/guided-tours';
     if (label === 'Datos de prueba') return path === '/admin/training-data';
     if (label === 'Rooms') return path === '/admin/rooms' || path === '/monitor/rooms';
     return false;
@@ -69,6 +71,7 @@ const requiredPermissions = {
     Monitores: 'models.view_all',
     Rooms: 'rooms.view',
     Workflows: 'settings.manage',
+    'Visitas guiadas': 'super_admin',
     'Datos de prueba': 'super_admin',
     Usuarios: 'users.view',
     'Roles y permisos': 'roles.view',

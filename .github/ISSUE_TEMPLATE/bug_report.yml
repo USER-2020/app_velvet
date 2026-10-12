@@ -1,0 +1,76 @@
+name: Bug report
+description: Report unexpected behavior in the application.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve The Velvet Studio. Do not include passwords, signed URLs, identity documents, or real personal data.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe what happened and what you expected to happen.
+      placeholder: When confirming an interview, the candidate sees a 403 error instead of the confirmation screen.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Authentication and users
+        - Recruitment (leads or candidates)
+        - Interviews and scheduling
+        - Onboarding, validations, or documents
+        - Rooms or operations
+        - Workflows
+        - Roles and permissions
+        - Product tours
+        - User interface or responsive behavior
+        - CI, tests, or deployment
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Sign in as …
+        2. Navigate to …
+        3. Click …
+        4. Observe …
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: role
+    attributes:
+      label: Role used
+      placeholder: Super Administrator, Recruitment, Human Resources, etc.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include browser, device or viewport width, and environment (local, staging, or production). Do not include secrets.
+      placeholder: Chrome 129, 390px viewport, local environment.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Attach sanitized screenshots or logs, if available.
+

@@ -7,6 +7,10 @@ use Inertia\Middleware;
 use App\Services\RealtimePublisher;
 use App\Services\NotificationService;
 use App\Enums\CandidateStatus;
+use App\Models\UserTourProgress;
+use App\Models\User;
+use App\Models\SystemSetting;
+use Illuminate\Database\QueryException;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -59,10 +63,60 @@ class HandleInertiaRequests extends Middleware
                 'label' => $candidate?->status?->label(),
                 'training_mode' => $candidate?->status !== CandidateStatus::ACTIVE || ! $candidate?->user?->is_active,
             ] : null,
+            'tourProgress' => $this->tourProgress($user),
+            'guidedTours' => [
+                'enabled' => $this->guidedToursEnabled(),
+            ],
             'realtime' => $user ? [
                 'counters' => app(RealtimePublisher::class)->counters(),
                 'notifications' => app(NotificationService::class)->forUser($user),
             ] : null,
         ];
+    }
+
+    private function tourProgress(?User $user): array
+    {
+        if (! $user) {
+            return [];
+        }
+
+        try {
+            return UserTourProgress::query()
+                ->where('user_id', $user->id)
+                ->get(['tour_key', 'version', 'completed_at', 'skipped_at'])
+                ->mapWithKeys(fn (UserTourProgress $tour) => [$tour->tour_key => [
+                    'version' => $tour->version,
+                    'completed_at' => $tour->completed_at?->toIso8601String(),
+                    'skipped_at' => $tour->skipped_at?->toIso8601String(),
+                ]])
+                ->all();
+        } catch (QueryException $exception) {
+            // A deployment should not take the whole panel down if its migration is pending.
+            if ($this->isMissingTable($exception)) {
+                return [];
+            }
+
+            throw $exception;
+        }
+    }
+
+    private function guidedToursEnabled(): bool
+    {
+        try {
+            return SystemSetting::guidedToursEnabled();
+        } catch (QueryException $exception) {
+            // A pending settings migration should not block access to the platform.
+            if ($this->isMissingTable($exception)) {
+                return true;
+            }
+
+            throw $exception;
+        }
+    }
+
+    private function isMissingTable(QueryException $exception): bool
+    {
+        return $exception->getCode() === '42S02'
+            || str_contains(strtolower($exception->getMessage()), 'no such table');
     }
 }

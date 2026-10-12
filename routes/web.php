@@ -15,6 +15,8 @@ use App\Http\Controllers\RoomController;
 use App\Http\Controllers\PortalRoomController;
 use App\Http\Controllers\DocumentsController;
 use App\Http\Controllers\TrainingDataController;
+use App\Http\Controllers\TourProgressController;
+use App\Http\Controllers\GuidedTourSettingsController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -26,11 +28,13 @@ Route::post('/apply', [RecruitmentController::class, 'store'])->middleware('thro
 Route::get('/apply/draft', [OnboardingDraftController::class, 'show'])->name('apply.draft.show');
 Route::post('/apply/draft', [OnboardingDraftController::class, 'store'])->middleware('throttle:60,1')->name('apply.draft.store');
 Route::delete('/apply/draft', [OnboardingDraftController::class, 'destroy'])->name('apply.draft.destroy');
+Route::get('/prequalification/completada', [RecruitmentController::class, 'prequalificationSuccess'])->name('prequalification.success');
 Route::get('/prequalification/{candidate}/{token}', [RecruitmentController::class, 'prequalification'])->middleware('signed')->name('prequalification.show');
 Route::get('/prequalification/{candidate}/{token}/identity-callback', [RecruitmentController::class, 'diditCallback'])->name('prequalification.identity.callback');
 Route::post('/prequalification/{candidate}/{token}', [RecruitmentController::class, 'storePrequalification'])->middleware(['signed', 'throttle:10,1'])->name('prequalification.store');
 Route::post('/prequalification/{candidate}/{token}/identity-session', [RecruitmentController::class, 'createIdentityVerificationSession'])->middleware(['signed', 'throttle:5,1'])->name('prequalification.identity.session');
 Route::post('/webhooks/didit', [RecruitmentController::class, 'diditWebhook'])->name('didit.webhook');
+Route::get('/entrevista/completada', [InterviewController::class, 'bookingSuccess'])->name('interview.booking.success');
 Route::get('/entrevista/{interview}/{token}', [InterviewController::class, 'booking'])->middleware('signed')->name('interview.booking.show');
 Route::post('/entrevista/{interview}/{token}', [InterviewController::class, 'book'])->middleware(['signed', 'throttle:10,1'])->name('interview.booking.book');
 Route::get('/contratacion/{candidate}/{token}/documentos', [ContractingController::class, 'publicDocuments'])->middleware('signed')->name('contracting.documents.show');
@@ -49,6 +53,7 @@ Route::get('/dashboard', function () {
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::put('/tour-progress/{tourKey}', [TourProgressController::class, 'update'])->name('tour-progress.update');
     Route::middleware(['permission:rooms.view_own', 'active.profile'])->prefix('model')->name('model.')->group(function () {
         Route::get('/dashboard', [PortalRoomController::class, 'modelDashboard'])->name('dashboard');
         Route::post('/rooms/reservations', [PortalRoomController::class, 'storeModelReservation'])->middleware(['permission:rooms.reserve_own', 'active.profile'])->name('rooms.reservations.store');
@@ -70,6 +75,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/{document}/download', [PortalRoomController::class, 'downloadContractDocument'])->name('download');
     });
     Route::prefix('admin')->name('admin.')->group(function () {
+        Route::get('/guided-tours', [GuidedTourSettingsController::class, 'index'])->name('guided-tours.index');
+        Route::put('/guided-tours', [GuidedTourSettingsController::class, 'update'])->name('guided-tours.update');
         Route::middleware('permission:dashboard.view')->group(function () {
             Route::get('/', [RecruitmentController::class, 'dashboard'])->name('dashboard');
             Route::get('/recruitment', [RecruitmentController::class, 'dashboard'])->name('recruitment');
