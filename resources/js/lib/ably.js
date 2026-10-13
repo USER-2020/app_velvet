@@ -17,7 +17,10 @@ export function subscribeToRealtime(onUpdate, eventName = null, onAvailabilityCh
     }
     if (onAvailabilityChange && realtimeAvailable !== null) onAvailabilityChange(realtimeAvailable);
     if (!realtime) {
-        realtime = new Ably.Realtime({ authUrl: '/realtime/token', authMethod: 'GET' });
+        const authUrl = window.location.pathname.startsWith('/admin')
+            ? '/admin/ably/token'
+            : '/realtime/token';
+        realtime = new Ably.Realtime({ authUrl, authMethod: 'GET' });
         realtime.connection.on((stateChange) => {
             if (stateChange.current === 'connected') reportAvailability(true);
             if (['failed', 'suspended'].includes(stateChange.current)) {
