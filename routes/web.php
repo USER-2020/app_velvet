@@ -15,6 +15,11 @@ use App\Http\Controllers\RoomController;
 use App\Http\Controllers\PortalRoomController;
 use App\Http\Controllers\DocumentsController;
 use App\Http\Controllers\TrainingDataController;
+use App\Http\Controllers\TourProgressController;
+use App\Http\Controllers\GuidedTourSettingsController;
+use App\Http\Controllers\OperationalProfileController;
+use App\Http\Controllers\StudioOperationsController;
+use App\Http\Controllers\MasterOperationsController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -26,15 +31,24 @@ Route::post('/apply', [RecruitmentController::class, 'store'])->middleware('thro
 Route::get('/apply/draft', [OnboardingDraftController::class, 'show'])->name('apply.draft.show');
 Route::post('/apply/draft', [OnboardingDraftController::class, 'store'])->middleware('throttle:60,1')->name('apply.draft.store');
 Route::delete('/apply/draft', [OnboardingDraftController::class, 'destroy'])->name('apply.draft.destroy');
+Route::get('/prequalification/completada', [RecruitmentController::class, 'prequalificationSuccess'])->name('prequalification.success');
 Route::get('/prequalification/{candidate}/{token}', [RecruitmentController::class, 'prequalification'])->middleware('signed')->name('prequalification.show');
 Route::get('/prequalification/{candidate}/{token}/identity-callback', [RecruitmentController::class, 'diditCallback'])->name('prequalification.identity.callback');
 Route::post('/prequalification/{candidate}/{token}', [RecruitmentController::class, 'storePrequalification'])->middleware(['signed', 'throttle:10,1'])->name('prequalification.store');
 Route::post('/prequalification/{candidate}/{token}/identity-session', [RecruitmentController::class, 'createIdentityVerificationSession'])->middleware(['signed', 'throttle:5,1'])->name('prequalification.identity.session');
 Route::post('/webhooks/didit', [RecruitmentController::class, 'diditWebhook'])->name('didit.webhook');
+Route::get('/entrevista/completada', [InterviewController::class, 'bookingSuccess'])->name('interview.booking.success');
 Route::get('/entrevista/{interview}/{token}', [InterviewController::class, 'booking'])->middleware('signed')->name('interview.booking.show');
 Route::post('/entrevista/{interview}/{token}', [InterviewController::class, 'book'])->middleware(['signed', 'throttle:10,1'])->name('interview.booking.book');
+Route::get('/contratacion/agenda/completada', [ContractingController::class, 'bookingSuccess'])->name('contracting.booking.success');
+Route::get('/contratacion/agenda/{invitation}/{token}', [ContractingController::class, 'booking'])->middleware('signed')->name('contracting.booking.show');
+Route::post('/contratacion/agenda/{invitation}/{token}', [ContractingController::class, 'bookPublic'])->middleware(['signed', 'throttle:10,1'])->name('contracting.booking.book');
 Route::get('/contratacion/{candidate}/{token}/documentos', [ContractingController::class, 'publicDocuments'])->middleware('signed')->name('contracting.documents.show');
 Route::post('/contratacion/{candidate}/{token}/documentos', [ContractingController::class, 'storePublicDocuments'])->middleware(['signed', 'throttle:10,1'])->name('contracting.documents.store');
+Route::get('/contratacion/{candidate}/{token}/documentos/exito', [ContractingController::class, 'publicDocumentsSuccess'])->middleware('signed')->name('contracting.documents.success');
+Route::get('/contratacion/{candidate}/{token}/documentos/realtime-token', [ContractingController::class, 'publicRealtimeToken'])->middleware('signed')->name('contracting.documents.realtime-token');
+Route::get('/contratacion/{candidate}/{token}/documentos/{document}/vista', [ContractingController::class, 'previewPublicDocument'])->middleware('signed')->name('contracting.documents.preview');
+Route::get('/contratacion/{candidate}/{token}/documentos/{document}/descarga', [ContractingController::class, 'downloadPublicDocument'])->middleware('signed')->name('contracting.documents.download');
 Route::post('/cookie-consent', [CookieConsentController::class, 'store'])->middleware('throttle:20,1')->name('cookie-consent.store');
 
 Route::get('/dashboard', function () {
@@ -49,8 +63,11 @@ Route::get('/dashboard', function () {
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    Route::put('/tour-progress/{tourKey}', [TourProgressController::class, 'update'])->name('tour-progress.update');
     Route::middleware(['permission:rooms.view_own', 'active.profile'])->prefix('model')->name('model.')->group(function () {
         Route::get('/dashboard', [PortalRoomController::class, 'modelDashboard'])->name('dashboard');
+        Route::get('/rooms', [PortalRoomController::class, 'modelRooms'])->name('rooms');
+        Route::get('/profile', [PortalRoomController::class, 'modelProfile'])->middleware('permission:profile.view_own')->name('profile');
         Route::post('/rooms/reservations', [PortalRoomController::class, 'storeModelReservation'])->middleware(['permission:rooms.reserve_own', 'active.profile'])->name('rooms.reservations.store');
         Route::patch('/rooms/reservations/{reservation}/status', [PortalRoomController::class, 'updateModelReservationStatus'])->middleware(['permission:rooms.use_own', 'active.profile'])->name('rooms.reservations.status.update');
     });
@@ -63,13 +80,18 @@ Route::middleware('auth')->group(function () {
     Route::middleware(['permission:models.view_assigned', 'active.profile'])->prefix('monitor/models')->name('monitor.models.')->group(function () {
         Route::get('/', [RecruitmentController::class, 'monitorModels'])->name('index');
         Route::get('/{candidate}', [RecruitmentController::class, 'monitorModel'])->name('show');
+        Route::post('/{candidate}/platform-accounts', [OperationalProfileController::class, 'linkAssignedPlatformAccount'])->middleware('permission:studio_accounts.assign_assigned')->name('platform-accounts.store');
+        Route::delete('/{candidate}/platform-accounts/{modelPlatformAccount}', [OperationalProfileController::class, 'unlinkAssignedPlatformAccount'])->middleware('permission:studio_accounts.assign_assigned')->name('platform-accounts.destroy');
     });
     Route::get('/realtime/token', [PortalRoomController::class, 'realtimeToken'])->name('realtime.token');
+    Route::post('/portal/requests', [StudioOperationsController::class, 'storeRequest'])->middleware('permission:requests.create')->name('portal.requests.store');
     Route::middleware('permission:documents.view_own')->prefix('portal/documents')->name('portal.documents.')->group(function () {
         Route::get('/{document}/preview', [PortalRoomController::class, 'previewContractDocument'])->name('preview');
         Route::get('/{document}/download', [PortalRoomController::class, 'downloadContractDocument'])->name('download');
     });
     Route::prefix('admin')->name('admin.')->group(function () {
+        Route::get('/guided-tours', [GuidedTourSettingsController::class, 'index'])->name('guided-tours.index');
+        Route::put('/guided-tours', [GuidedTourSettingsController::class, 'update'])->name('guided-tours.update');
         Route::middleware('permission:dashboard.view')->group(function () {
             Route::get('/', [RecruitmentController::class, 'dashboard'])->name('dashboard');
             Route::get('/recruitment', [RecruitmentController::class, 'dashboard'])->name('recruitment');
@@ -80,6 +102,33 @@ Route::middleware('auth')->group(function () {
             Route::post('/training-data/reset', [TrainingDataController::class, 'reset'])->name('training-data.reset');
         });
         Route::get('/processes', [RecruitmentController::class, 'processes'])->middleware('permission:onboarding.view')->name('processes');
+        Route::get('/operations', [StudioOperationsController::class, 'index'])->middleware('permission:shifts.view_team')->name('operations.index');
+        Route::post('/operations/shifts', [StudioOperationsController::class, 'storeShift'])->middleware('permission:shifts.manage_team')->name('operations.shifts.store');
+        Route::patch('/operations/shifts/{shift}/attendance', [StudioOperationsController::class, 'updateAttendance'])->middleware('permission:attendance.manage')->name('operations.shifts.attendance');
+        Route::patch('/operations/checklists/{checklist}/complete', [StudioOperationsController::class, 'completeChecklist'])->middleware('permission:room_checklists.manage')->name('operations.checklists.complete');
+        Route::post('/operations/incidents', [StudioOperationsController::class, 'storeIncident'])->middleware('permission:incidents.manage')->name('operations.incidents.store');
+        Route::patch('/operations/incidents/{incident}', [StudioOperationsController::class, 'resolveIncident'])->middleware('permission:incidents.manage')->name('operations.incidents.update');
+        Route::post('/operations/notes', [StudioOperationsController::class, 'storeNote'])->middleware('permission:incidents.manage')->name('operations.notes.store');
+        Route::patch('/operations/requests/{operationalRequest}', [StudioOperationsController::class, 'resolveRequest'])->middleware('permission:incidents.manage')->name('operations.requests.update');
+        Route::get('/platforms', [MasterOperationsController::class, 'platforms'])->middleware('permission:platforms.view')->name('platforms.index');
+        Route::post('/platforms', [MasterOperationsController::class, 'storePlatform'])->middleware('permission:platforms.manage')->name('platforms.store');
+        Route::post('/platforms/accounts', [MasterOperationsController::class, 'storeStudioAccount'])->middleware('permission:studio_accounts.manage')->name('platforms.accounts.store');
+        Route::post('/platforms/accounts/{studioAccount}/models', [MasterOperationsController::class, 'linkModelAccount'])->middleware('permission:studio_accounts.manage')->name('platforms.accounts.models.store');
+        Route::post('/platforms/accounts/{studioAccount}/simulate-sync', [MasterOperationsController::class, 'simulateSync'])->middleware('permission:platform_simulations.run')->name('platforms.accounts.sync.simulate');
+        Route::post('/platforms/accounts/{studioAccount}/import', [MasterOperationsController::class, 'importManual'])->middleware('permission:platform_imports.manage')->name('platforms.accounts.import');
+        Route::get('/productivity', [MasterOperationsController::class, 'productivity'])->middleware('permission:reports.operational.view')->name('productivity.index');
+        Route::post('/productivity/sessions', [MasterOperationsController::class, 'storeSession'])->middleware('permission:sessions.manage')->name('productivity.sessions.store');
+        Route::patch('/productivity/sessions/{session}/close', [MasterOperationsController::class, 'closeSession'])->middleware('permission:sessions.manage')->name('productivity.sessions.close');
+        Route::post('/productivity/sessions/{session}/streams', [MasterOperationsController::class, 'storeStream'])->middleware('permission:streams.manage')->name('productivity.streams.store');
+        Route::patch('/productivity/streams/{stream}/close', [MasterOperationsController::class, 'closeStream'])->middleware('permission:streams.manage')->name('productivity.streams.close');
+        Route::post('/productivity/metrics', [MasterOperationsController::class, 'storeMetric'])->middleware('permission:productivity.manage')->name('productivity.metrics.store');
+        Route::patch('/productivity/metrics/{metric}/validate', [MasterOperationsController::class, 'validateMetric'])->name('productivity.metrics.validate');
+        Route::get('/administration', [MasterOperationsController::class, 'administration'])->middleware('permission:branches.manage')->name('administration.index');
+        Route::post('/administration/branches', [MasterOperationsController::class, 'storeBranch'])->middleware('permission:branches.manage')->name('administration.branches.store');
+        Route::post('/administration/assets', [MasterOperationsController::class, 'storeAsset'])->middleware('permission:inventory.manage')->name('administration.assets.store');
+        Route::post('/administration/maintenance', [MasterOperationsController::class, 'storeMaintenance'])->middleware('permission:maintenance.manage')->name('administration.maintenance.store');
+        Route::post('/administration/reviews', [MasterOperationsController::class, 'storeReview'])->middleware('permission:performance_reviews.manage')->name('administration.reviews.store');
+        Route::post('/finance/exports', [MasterOperationsController::class, 'exportFinance'])->middleware('permission:integrations.finance_export')->name('finance.exports.store');
         Route::middleware('permission:leads.view')->group(function () {
             Route::get('/leads', [RecruitmentController::class, 'leads'])->name('leads');
             Route::get('/leads/{lead}', [RecruitmentController::class, 'lead'])->name('leads.show');
@@ -100,7 +149,12 @@ Route::middleware('auth')->group(function () {
         Route::put('/candidates/{candidate}', [RecruitmentController::class, 'updateCandidate'])->middleware('permission:candidates.update')->name('candidates.update');
         Route::post('/candidates/{candidate}/activate-access', [RecruitmentController::class, 'activateCandidateAccess'])->middleware('permission:candidates.activate_access')->name('candidates.activate-access');
         Route::patch('/candidates/{candidate}/access-status', [RecruitmentController::class, 'updateCandidateAccessStatus'])->middleware('permission:candidates.activate_access')->name('candidates.access-status');
+        Route::post('/candidates/{candidate}/training-records', [OperationalProfileController::class, 'storeTrainingRecord'])->middleware('permission:onboarding.manage')->name('candidates.training-records.store');
+        Route::patch('/candidates/{candidate}/training-records/{trainingRecord}', [OperationalProfileController::class, 'updateTrainingRecord'])->middleware('permission:onboarding.manage')->name('candidates.training-records.update');
+        Route::post('/models/{model}/monitor-assignments', [OperationalProfileController::class, 'assignMonitor'])->middleware('permission:models.assign_monitor')->name('models.monitor-assignments.store');
+        Route::patch('/models/{model}/monitor-assignments/{assignment}/end', [OperationalProfileController::class, 'endMonitorAssignment'])->middleware('permission:models.change_monitor')->name('models.monitor-assignments.end');
         Route::post('/candidates/{candidate}/start-contracting', [RecruitmentController::class, 'startContracting'])->middleware('permission:contracts.create')->name('candidates.start-contracting');
+        Route::post('/candidates/{candidate}/contracting-invitation', [RecruitmentController::class, 'sendContractingInvitation'])->middleware('permission:contracts.create')->name('candidates.contracting-invitation.send');
         Route::post('/candidates/{candidate}/interview-notes', [RecruitmentController::class, 'uploadInterviewNotes'])->middleware('permission:candidates.update')->name('candidates.interview-notes.upload');
         Route::get('/candidates/{candidate}/interview-notes', [RecruitmentController::class, 'downloadInterviewNotes'])->middleware('permission:candidates.view')->name('candidates.interview-notes.download');
         Route::get('/candidates/{candidate}/interview-notes/preview', [RecruitmentController::class, 'previewInterviewNotes'])->middleware('permission:candidates.view')->name('candidates.interview-notes.preview');
@@ -157,20 +211,21 @@ Route::middleware('auth')->group(function () {
         Route::middleware('permission:roles.manage')->group(function () {
             Route::get('/access', [AccessControlController::class, 'index'])->name('access.index');
             Route::get('/access/create', [AccessControlController::class, 'create'])->name('access.create');
-            Route::post('/access', [AccessControlController::class, 'store'])->name('access.store');
+            Route::post('/access', [AccessControlController::class, 'store'])->middleware('password.confirm')->name('access.store');
             Route::get('/access/{role}/edit', [AccessControlController::class, 'edit'])->name('access.edit');
-            Route::put('/access/{role}', [AccessControlController::class, 'update'])->name('access.update');
-            Route::delete('/access/{role}', [AccessControlController::class, 'destroy'])->name('access.destroy');
+            Route::put('/access/{role}', [AccessControlController::class, 'update'])->middleware('password.confirm')->name('access.update');
+            Route::delete('/access/{role}', [AccessControlController::class, 'destroy'])->middleware('password.confirm')->name('access.destroy');
         });
         Route::get('/users', [UserAccessController::class, 'index'])->middleware('permission:users.view')->name('users.index');
         Route::get('/users/create', [UserAccessController::class, 'create'])->middleware('permission:users.create')->name('users.create');
-        Route::post('/users', [UserAccessController::class, 'store'])->middleware('permission:users.create')->name('users.store');
+        Route::post('/users', [UserAccessController::class, 'store'])->middleware(['permission:users.create', 'password.confirm'])->name('users.store');
         Route::get('/users/{user}/edit', [UserAccessController::class, 'edit'])->middleware('permission:users.update')->name('users.edit');
-        Route::put('/users/{user}', [UserAccessController::class, 'update'])->middleware('permission:users.update')->name('users.update');
-        Route::delete('/users/{user}', [UserAccessController::class, 'destroy'])->middleware('permission:users.disable')->name('users.destroy');
+        Route::put('/users/{user}', [UserAccessController::class, 'update'])->middleware(['permission:users.update', 'password.confirm'])->name('users.update');
+        Route::delete('/users/{user}', [UserAccessController::class, 'destroy'])->middleware(['permission:users.disable', 'password.confirm'])->name('users.destroy');
     });
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::get('/profile/photo', [ProfileController::class, 'photo'])->name('profile.photo');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 

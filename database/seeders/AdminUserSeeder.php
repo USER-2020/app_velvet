@@ -12,7 +12,7 @@ class AdminUserSeeder extends Seeder
     {
         $email = env('VELVET_ADMIN_EMAIL', 'admin@velvet.local');
         $password = env('VELVET_ADMIN_PASSWORD', 'change-me-now');
-
+    
         $user = User::updateOrCreate(
             ['email' => $email],
             ['name' => env('VELVET_ADMIN_NAME', 'Velvet Admin'), 'password' => Hash::make($password), 'email_verified_at' => now()]

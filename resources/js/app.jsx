@@ -6,6 +6,17 @@ import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createRoot } from 'react-dom/client';
 import { Toaster, toast } from 'react-hot-toast';
 import { useEffect, useState } from 'react';
+import ProductTour from '@/Components/ProductTour';
+
+function renderInertiaPage({ Component, props, key }) {
+    const child = <Component key={key} {...props} />;
+    let page = child;
+
+    if (typeof Component.layout === 'function') page = Component.layout(child);
+    if (Array.isArray(Component.layout)) page = Component.layout.concat(child).reverse().reduce((children, Layout) => <Layout {...props}>{children}</Layout>);
+
+    return <>{page}<ProductTour /></>;
+}
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
@@ -21,6 +32,8 @@ const isPublicPath = (pathname) => pathname === '/'
     || pathname.startsWith('/confirm-password');
 
 const pathFromVisit = (visit) => new URL(visit?.url || window.location.href, window.location.origin).pathname;
+const isPublicGetVisit = (visit) => String(visit?.method || 'get').toLowerCase() === 'get'
+    && isPublicPath(pathFromVisit(visit));
 
 function PublicRouteOverlay() {
     const [active, setActive] = useState(() => isPublicPath(window.location.pathname));
@@ -47,7 +60,10 @@ function PublicRouteOverlay() {
         };
 
         const onStart = (event) => {
-            const publicRoute = isPublicPath(pathFromVisit(event.detail?.visit));
+            // Un POST a /login o /logout conserva esa URL en el objeto de visita,
+            // aunque Laravel responda con una redirección al dashboard. Solo las
+            // navegaciones GET hacia una ruta pública deben mostrar este overlay.
+            const publicRoute = isPublicGetVisit(event.detail?.visit);
             window.dispatchEvent(new CustomEvent('velvet-public-route-changed', { detail: { publicRoute } }));
             clearTimers();
             setFading(false);
@@ -55,7 +71,10 @@ function PublicRouteOverlay() {
         };
 
         const onFinish = (event) => {
-            const publicRoute = isPublicPath(pathFromVisit(event.detail?.visit));
+            // La URL del navegador ya corresponde al destino final de un redirect
+            // de Inertia; evita dejar el login visible tras autenticar otro usuario.
+            const publicRoute = isPublicGetVisit(event.detail?.visit)
+                && isPublicPath(window.location.pathname);
             if (publicRoute) schedule();
             else {
                 clearTimers();
@@ -246,7 +265,7 @@ createInertiaApp({
     setup({ el, App, props }) {
         const root = createRoot(el);
 
-        root.render(<><App {...props} /><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /></>);
+        root.render(<><App {...props}>{renderInertiaPage}</App><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /></>);
     },
     progress: {
         color: '#4B5563',

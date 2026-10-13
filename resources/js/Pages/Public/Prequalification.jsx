@@ -83,8 +83,9 @@ export default function Prequalification({ candidate, actionUrl, identitySession
             const response = await window.axios.post(identitySessionUrl, restart ? { restart: true } : {});
             setIdentityStatus(response.data.status || 'IN_PROGRESS');
             if (response.data.url) {
-                const verificationWindow = window.open(response.data.url, '_blank', 'noopener,noreferrer');
-                if (!verificationWindow) window.location.assign(response.data.url);
+                // Didit devuelve al callback configurado al terminar; navegar en la
+                // pestaña actual evita acumular ventanas de verificación abiertas.
+                window.location.assign(response.data.url);
             }
         } catch (error) {
             setIdentityError(error.response?.data?.message || 'No se pudo iniciar la verificación. Inténtalo nuevamente.');

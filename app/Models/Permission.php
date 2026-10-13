@@ -2,17 +2,25 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use Spatie\Permission\Contracts\Permission as PermissionContract;
+use Spatie\Permission\Exceptions\PermissionDoesNotExist;
+use Spatie\Permission\Guard;
+use Spatie\Permission\Models\Permission as SpatiePermission;
 
-class Permission extends Model
+class Permission extends SpatiePermission
 {
-    use HasFactory;
+    protected $fillable = ['name', 'slug', 'group', 'guard_name'];
 
-    protected $fillable = ['name', 'slug', 'group'];
-
-    public function roles()
+    /** Velvet authorizes by immutable slugs while Spatie normally resolves by name. */
+    public static function findByName(string $name, ?string $guardName = null): PermissionContract
     {
-        return $this->belongsToMany(Role::class, 'role_permission');
+        $guardName ??= Guard::getDefaultName(static::class);
+        $permission = static::query()->where('slug', $name)->where('guard_name', $guardName)->first();
+
+        if ($permission) {
+            return $permission;
+        }
+
+        throw PermissionDoesNotExist::create($name, $guardName);
     }
 }

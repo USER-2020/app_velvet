@@ -5,11 +5,13 @@ namespace Database\Seeders;
 use App\Models\Permission;
 use App\Models\Role;
 use Illuminate\Database\Seeder;
+use Spatie\Permission\PermissionRegistrar;
 
 class RolePermissionSeeder extends Seeder
 {
     public function run(): void
     {
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
         if (($legacyReviewer = Role::where('slug', 'reviewer')->first()) && ! Role::where('slug', 'hr')->exists()) {
             $legacyReviewer->update(['slug' => 'hr', 'name' => 'Recursos Humanos']);
         }
@@ -109,7 +111,7 @@ class RolePermissionSeeder extends Seeder
         ];
 
         $permissions = collect($definitions)->mapWithKeys(fn (array $permission) => [
-            $permission['slug'] => Permission::updateOrCreate(['slug' => $permission['slug']], $permission),
+            $permission['slug'] => Permission::firstOrCreate(['slug' => $permission['slug']], [...$permission, 'guard_name' => 'web']),
         ])->all();
 
         $all = array_keys($permissions);
@@ -136,12 +138,14 @@ class RolePermissionSeeder extends Seeder
         ];
 
         foreach ($definitionsByRole as $definition) {
-            $role = Role::updateOrCreate(['slug' => $definition['slug']], collect($definition)->except(['parent', 'permissions'])->all());
-            $role->permissions()->sync(collect($definition['permissions'])->map(fn ($slug) => $permissions[$slug]->id)->all());
+            $role = Role::firstOrCreate(['slug' => $definition['slug']], [...collect($definition)->except(['parent', 'permissions'])->all(), 'guard_name' => 'web']);
+            $role->givePermissionTo(collect($definition['permissions'])->map(fn ($slug) => $permissions[$slug])->all());
         }
 
         foreach ($definitionsByRole as $definition) {
             Role::where('slug', $definition['slug'])->update(['parent_role_id' => $definition['parent'] ? Role::where('slug', $definition['parent'])->value('id') : null]);
         }
+
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 }

@@ -1,13 +1,15 @@
-import { Head, Link, useForm } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
+import { useCallback, useEffect, useState } from 'react';
 import { FaWhatsapp } from 'react-icons/fa6';
 import { FiArrowLeft, FiCheckCircle, FiClock, FiEdit3, FiMail, FiTrash2, FiUser, FiX } from 'react-icons/fi';
 import { formatFriendlyDate, formatFriendlyDateTime } from '../../../../lib/date';
 import { candidateTypeLabels } from '../../../../lib/recruitmentLabels';
 import AdminApplicationEditModal from '../../../../Components/AdminApplicationEditModal';
 import InterviewNotesUpload from '../../../../Components/InterviewNotesUpload';
+import ContractingDocumentsUpload from '../../../../Components/ContractingDocumentsUpload';
 import Layout from '../Layout';
 import { subscribeToRealtime } from '../../../../lib/ably';
+import { useRealtimeFallback } from '../../../../lib/useRealtimeFallback';
 
 const sexLabels = { WOMAN: 'Mujer', MAN: 'Hombre', TRANS_WOMAN: 'Mujer trans', TRANS_MAN: 'Hombre trans', NON_BINARY: 'No binario', GENDER_FLUID: 'Género fluido', AGENDER: 'Agénero', SELF_DESCRIBE: 'Otro / Prefiero autodescribir', PREFER_NOT_TO_SAY: 'Prefiero no decir' };
 
@@ -24,28 +26,33 @@ export default function Show({ lead }) {
     const [pipelineStatus, setPipelineStatus] = useState(lead.pipeline_status);
     const [activities, setActivities] = useState(lead.process_activities || lead.activities || []);
     const [realtime, setRealtime] = useState(false);
+    const [realtimeUnavailable, setRealtimeUnavailable] = useState(!import.meta.env.VITE_ABLY_ENABLED);
+    const refresh = useCallback(() => router.reload({ only: ['lead', 'realtime'], preserveScroll: true, preserveState: false }), []);
     useEffect(() => {
         const unsubscribe = subscribeToRealtime((event, eventName) => {
             if (Number(event.lead_id) !== Number(lead.id)) return;
             if (event.status) { setPipelineStatus(event.status); statusForm.setData('status', event.status); }
-            if (event.activity) {
-                const activity = { ...event.activity, created_at: event.activity.created_at || event.updated_at || new Date().toISOString(), id: `${eventName || 'realtime'}-${event.activity.id}` };
-                setActivities((current) => current.some((item) => item.id === activity.id) ? current : [...current, activity]);
-            }
+            const incomingActivities = event.activities?.length ? event.activities : (event.activity ? [event.activity] : []);
+            incomingActivities.forEach((item) => {
+                const activity = { ...item, created_at: item.created_at || event.updated_at || new Date().toISOString(), id: `${eventName || 'realtime'}-${item.id}` };
+                setActivities((current) => current.some((currentItem) => currentItem.id === activity.id) ? current : [...current, activity]);
+            });
+            if (['candidate.updated', 'candidate.documents_uploaded', 'candidate.status_changed'].includes(eventName)) refresh();
             setRealtime(true);
-        });
+        }, null, (available) => setRealtimeUnavailable(!available));
         return unsubscribe;
     }, [lead.id]);
+    useRealtimeFallback(refresh, realtimeUnavailable);
     const updateStatus = (event) => {
         const status = event.target.value;
         setPipelineStatus(status);
         statusForm.setData('status', status);
-        statusForm.patch(`/admin/leads/${lead.id}/status`, { preserveScroll: true, onError: () => setPipelineStatus(lead.pipeline_status) });
+        statusForm.patch(`/admin/leads/${lead.id}/status`, { preserveScroll: true, onSuccess: refresh, onError: () => setPipelineStatus(lead.pipeline_status) });
     };
     const changeStatus = (status) => {
         setPipelineStatus(status);
         statusForm.setData('status', status);
-        statusForm.patch(`/admin/leads/${lead.id}/status`, { preserveScroll: true, onError: () => setPipelineStatus(lead.pipeline_status) });
+        statusForm.patch(`/admin/leads/${lead.id}/status`, { preserveScroll: true, onSuccess: refresh, onError: () => setPipelineStatus(lead.pipeline_status) });
     };
     const convertAction = () => form.post(`/admin/leads/${lead.id}/convert`);
     const startContractingAction = (candidateId) => form.post(`/admin/candidates/${candidateId}/start-contracting`, { preserveScroll: true });
@@ -58,7 +65,7 @@ export default function Show({ lead }) {
             title: 'Solicitar precalificación',
             description: 'La persona ya es candidata. Envíale el formulario para completar requisitos e iniciar la validación.',
             label: 'Enviar formulario de precalificación',
-            action: () => statusForm.post(`/admin/candidates/${candidateId}/prequalification`, { preserveScroll: true }),
+            action: () => statusForm.post(`/admin/candidates/${candidateId}/prequalification`, { preserveScroll: true, onSuccess: refresh }),
         };
         if (candidateId && pipelineStatus === 'PREQUALIFIED') return {
             title: 'Agendar entrevista',
@@ -129,7 +136,7 @@ export default function Show({ lead }) {
                     <div className="flex flex-wrap items-center gap-2"><span className="w-fit rounded-full border border-[#9142a7]/50 bg-[#3d164d] px-3 py-1.5 text-xs text-[#f0c1fa]">{(lead.status_options || []).find((option) => option.value === pipelineStatus)?.label || pipelineStatus}</span><button type="button" onClick={() => setEditing((value) => !value)} className="inline-flex items-center gap-2 rounded-lg border border-[#49334f] px-3 py-2 text-xs text-[#e6c4ed] transition hover:border-[#a84bc2] hover:text-white"><FiEdit3 size={14} />{editing ? 'Cerrar edición' : 'Editar datos'}</button>{!lead.candidate && lead.status !== 'DISCARDED' && <button type="button" onClick={() => setDiscarding(true)} className="inline-flex items-center gap-2 rounded-lg border border-[#673344] px-3 py-2 text-xs text-[#ffb1bd] transition hover:border-[#bb4c66] hover:bg-[#321622]"><FiTrash2 size={14} />Descartar</button>}</div>
                 </div>
                 <AdminApplicationEditModal open={editing} onClose={() => setEditing(false)} endpoint={`/admin/leads/${lead.id}`} person={lead} candidateType={lead.candidate_type} title="Editar información de la aplicación" />
-                <div className="mt-8 rounded-xl border border-[#292d39] bg-[#11131c]/90 p-5 shadow-[0_18px_55px_rgba(0,0,0,.16)] sm:p-6">
+                <div data-tour="lead-flow" className="mt-8 rounded-xl border border-[#292d39] bg-[#11131c]/90 p-5 shadow-[0_18px_55px_rgba(0,0,0,.16)] sm:p-6">
                     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><p className="text-[10px] uppercase tracking-[.28em] text-[#d56bea]">Flujo del lead</p><p className="mt-2 text-sm text-[#c3c6d1]">Gestiona la siguiente etapa desde esta tarjeta. Los cambios aparecen en tiempo real para todo el equipo.</p></div><div className="flex items-center gap-3"><span className={`inline-flex items-center gap-2 text-[10px] ${realtime ? 'text-[#65e6ad]' : 'text-[#777d8f]'}`} title={realtime ? 'Conectado a Ably' : 'Guardado automático en el servidor'}><span className={`h-2 w-2 rounded-full ${realtime ? 'bg-[#65e6ad] shadow-[0_0_10px_#65e6ad]' : 'bg-[#777d8f]'}`} />{realtime ? 'Tiempo real activo' : 'Guardado automático'}</span></div></div>
                 </div>
                 {recommendation && <div className="mt-4 flex flex-col justify-between gap-4 rounded-xl border border-[#713080] bg-gradient-to-r from-[#24112d] to-[#15121d] p-5 shadow-[0_12px_35px_rgba(116,31,145,.12)] sm:flex-row sm:items-center sm:p-6"><div><div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full bg-[#713080] text-[#f5c8ff]">→</span><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#e5a1f2]">Siguiente paso recomendado</p></div><h2 className="mt-3 text-base font-medium text-white">{recommendation.title}</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-[#bdb3c5]">{recommendation.description}</p></div>{recommendation.href ? <a href={recommendation.href} onClick={recommendation.after} className="inline-flex shrink-0 items-center justify-center rounded-lg bg-[#a92ad8] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#c13dea]">{recommendation.label} →</a> : <button type="button" onClick={recommendation.action} disabled={statusForm.processing || form.processing} className="inline-flex shrink-0 items-center justify-center rounded-lg bg-[#a92ad8] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#c13dea] disabled:cursor-wait disabled:opacity-60">{recommendation.label} →</button>}</div>}
@@ -149,6 +156,7 @@ export default function Show({ lead }) {
                         <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-[#3c1749] text-[#e2a0f1]"><FiClock size={16} /></span><div><p className="text-sm font-medium text-white">Historial de la aplicación</p><p className="mt-1 text-xs text-[#7f8495]">Actividad registrada</p></div></div>
                         <div className="mt-7 space-y-6">{activities.length ? activities.map((activity) => <div key={activity.timeline_id || activity.id} className="relative border-l border-[#8b28ad] pl-5"><span className="absolute -left-[5px] top-0 h-2.5 w-2.5 rounded-full bg-[#c22be8] shadow-[0_0_12px_rgba(194,43,232,.65)]" /><p className="text-sm text-[#e6e1ea]">{activity.description}</p><p className="mt-1 text-xs text-[#7f8495]">{formatFriendlyDateTime(activity.created_at)}</p></div>) : <p className="text-sm text-[#7f8495]">Aún no hay actividad registrada.</p>}</div>
                         <div className="mt-8 border-t border-[#292d39] pt-6"><p className="text-[10px] uppercase tracking-[.18em] text-[#7f8495]">Contacto directo</p><div className="mt-4 space-y-3"><a href={emailHref || undefined} className={`flex items-center gap-3 rounded-lg border px-3 py-3 transition ${emailHref ? 'border-[#302c3c] bg-[#151622] hover:border-[#88429a] hover:bg-[#21172a]' : 'pointer-events-none border-[#262934] bg-[#12141c] opacity-50'}`}><span className="grid h-8 w-8 place-items-center rounded-full bg-[#3b1948] text-[#d56bea]"><FiMail size={15} /></span><span className="min-w-0"><strong className="block text-xs font-medium text-[#e7e1eb]">Enviar correo</strong><small className="mt-1 block text-[10px] text-[#7f8495]">{lead.email || 'Correo no indicado'}</small></span></a><a href={whatsappHref || undefined} target="_blank" rel="noreferrer" className={`flex items-center gap-3 rounded-lg border px-3 py-3 transition ${whatsappHref ? 'border-[#254b49] bg-[#122321] hover:border-[#36ae97] hover:bg-[#173d37]' : 'pointer-events-none border-[#262934] bg-[#12141c] opacity-50'}`}><span className="grid h-8 w-8 place-items-center rounded-full bg-[#16483f] text-[#8ee2ca]"><FaWhatsapp size={15} /></span><span className="min-w-0"><strong className="block text-xs font-medium text-[#e7e1eb]">Escribir por WhatsApp</strong><small className="mt-1 block text-[10px] text-[#7f8495]">{lead.phone || 'WhatsApp no indicado'}</small></span></a></div></div>
+                        <ContractingDocumentsUpload candidateId={lead.candidate?.id} status={pipelineStatus} documents={lead.documents || []} />
                         <InterviewNotesUpload candidateId={lead.candidate?.id} status={pipelineStatus} documents={lead.documents || []} />
                     </aside>
                 </div>

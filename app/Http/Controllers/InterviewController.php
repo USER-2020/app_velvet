@@ -153,7 +153,7 @@ class InterviewController extends Controller
             return back()->withErrors(['interview' => 'Genera al menos una franja disponible antes de enviar la invitación.']);
         }
         $activity = $candidate->activities()->latest('id')->first();
-        app(RealtimePublisher::class)->publishLead($candidate->fresh('lead'), 'interview.invited', ['interview_id' => $interview->id, 'activity' => $activity?->only(['id', 'description', 'created_at']), 'notification' => ['title' => 'Invitación de entrevista enviada', 'description' => "Se enviaron horarios a {$candidate->lead->full_name}."]]);
+        app(RealtimePublisher::class)->publishLead($candidate->fresh('lead')->lead, 'interview.invited', ['interview_id' => $interview->id, 'activity' => $activity?->only(['id', 'description', 'created_at']), 'notification' => ['title' => 'Invitación de entrevista enviada', 'description' => "Se enviaron horarios a {$candidate->lead->full_name}."]]);
         return back()->with('success', 'Horarios de entrevista enviados al correo registrado.');
     }
 
@@ -208,7 +208,16 @@ class InterviewController extends Controller
         ]);
     }
 
-    public function book(Request $request, Interview $interview, string $token): Response|RedirectResponse
+    public function bookingSuccess(Request $request): Response
+    {
+        return Inertia::render('Public/InterviewBookingSuccess', [
+            'candidate' => $request->session()->get('interview_booking_completed.candidate'),
+            'scheduledAt' => $request->session()->get('interview_booking_completed.scheduled_at'),
+            'whatsappUrl' => $request->session()->get('interview_booking_completed.whatsapp_url'),
+        ]);
+    }
+
+    public function book(Request $request, Interview $interview, string $token): RedirectResponse
     {
         $this->validateInvitation($interview, $token);
         $validated = $request->validate(['slot_id' => ['required', 'integer', 'exists:interview_slots,id']]);
@@ -235,7 +244,15 @@ class InterviewController extends Controller
             report($exception);
         }
         $scheduledAt = Carbon::createFromFormat('Y-m-d H:i:s', $interview->getRawOriginal('scheduled_at'), 'UTC')->setTimezone('America/Bogota')->toIso8601String();
-        return Inertia::render('Public/InterviewBookingSuccess', ['candidate' => ['name' => $interview->candidate->lead->full_name, 'code' => $interview->candidate->code], 'scheduledAt' => $scheduledAt, 'whatsappUrl' => $whatsappUrl]);
+
+        return to_route('interview.booking.success')->with('interview_booking_completed', [
+            'candidate' => [
+                'name' => $interview->candidate->lead->full_name,
+                'code' => $interview->candidate->code,
+            ],
+            'scheduled_at' => $scheduledAt,
+            'whatsapp_url' => $whatsappUrl,
+        ]);
     }
 
     private function formatSlotForTimezone(InterviewSlot $slot): array

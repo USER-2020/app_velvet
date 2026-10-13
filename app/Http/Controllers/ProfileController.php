@@ -8,6 +8,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\Storage;
+use App\Services\ProfilePhotoService;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -19,19 +21,22 @@ class ProfileController extends Controller
     public function edit(Request $request): Response
     {
         $candidate = $request->user()->loadMissing('candidate')->candidate;
+        if ($candidate) {
+            app(ProfilePhotoService::class)->importDefaultFromDidit($candidate);
+            $request->user()->refresh();
+        }
         $identityData = $candidate?->identity_verification_data ?? [];
-        $portrait = collect($identityData['images'] ?? [])->first(function ($image) {
-            $label = mb_strtolower((string) ($image['label'] ?? ''));
-            return str_contains($label, 'retrato') || str_contains($label, 'selfie') || str_contains($label, 'facial');
-        });
 
         return Inertia::render('Profile/Edit', [
             'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
             'status' => session('status'),
             'identityVerification' => [
                 'verified' => $candidate?->identity_verification_status === 'APPROVED',
-                'portraitUrl' => $portrait['url'] ?? null,
                 'provider' => $identityData['provider'] ?? null,
+            ],
+            'profilePhoto' => [
+                'url' => $request->user()->profile_photo_path ? route('profile.photo', ['v' => $request->user()->updated_at?->timestamp]) : null,
+                'source' => $request->user()->profile_photo_source,
             ],
         ]);
     }
@@ -41,15 +46,32 @@ class ProfileController extends Controller
      */
     public function update(ProfileUpdateRequest $request): RedirectResponse
     {
-        $request->user()->fill($request->validated());
+        $validated = $request->validated();
+        $user = $request->user();
+        $user->fill(collect($validated)->except('profile_photo')->all());
 
-        if ($request->user()->isDirty('email')) {
-            $request->user()->email_verified_at = null;
+        if ($user->isDirty('email')) {
+            $user->email_verified_at = null;
         }
 
-        $request->user()->save();
+        $user->save();
+
+        if ($request->hasFile('profile_photo')) {
+            app(ProfilePhotoService::class)->storeUpload($user, $request->file('profile_photo'));
+        }
 
         return Redirect::route('profile.edit');
+    }
+
+    public function photo(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user->profile_photo_path && Storage::disk('local')->exists($user->profile_photo_path), 404);
+
+        return response()->file(Storage::disk('local')->path($user->profile_photo_path), [
+            'Content-Disposition' => 'inline; filename="foto-perfil"',
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
     }
 
     /**
