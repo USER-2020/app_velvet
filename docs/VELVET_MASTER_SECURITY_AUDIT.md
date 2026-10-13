@@ -68,6 +68,12 @@ La migración `2026_10_12_020000_create_platform_productivity_and_administration
 - [ ] El análisis antimalware requiere un servicio configurado (por ejemplo ClamAV) y una cola de cuarentena. No se declara un archivo seguro sin un escáner real.
 - [ ] La retención, anonimización y eliminación segura requieren una política legal aprobada y un calendario de conservación.
 
+La preview y descarga administrativas aplican `LeadDocumentPolicy` mediante
+`Gate::authorize('view', $document)`. La regresion
+`RecruitmentTest::test_admin_can_preview_a_stored_document` comprueba que un
+administrador autorizado puede visualizar un archivo almacenado en el disco
+privado.
+
 ## 06 · Plataformas Studio e integraciones
 
 - [x] `StudioAccount.encrypted_credentials` permanece oculto y las credenciales se cifran antes de persistirse; solo existe el adaptador `simulation`.

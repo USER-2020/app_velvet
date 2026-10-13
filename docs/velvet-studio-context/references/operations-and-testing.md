@@ -84,6 +84,17 @@ La misma prueba cubre la persistencia secuencial por requisito y que el estado `
 
 `StudioOperationsTest` cubre el inicio y cierre de una reserva: verifica `IN_USE`/`COMPLETED`, apertura y cierre de asistencia, sincronización de `OperationalShift` y persistencia de `operational_sessions`. El build frontend se valida con `npm run build`.
 
+`RecruitmentTest::test_admin_can_preview_a_stored_document` cubre la preview
+administrativa de un archivo privado. El controlador usa
+`Gate::authorize('view', $document)` porque el controlador base de la
+aplicacion no expone `$this->authorize()`.
+
+En el hosting, los documentos permanecen en
+`storage/app/private/lead-documents`. Esta ruta debe persistir entre releases,
+tener permisos de lectura/escritura para PHP y estar incluida en los backups.
+La preview no requiere `php artisan storage:link`; se entrega mediante la ruta
+autorizada. Despues de publicar cambios PHP, ejecutar `php artisan optimize:clear`.
+
 ## CI
 
 `.github/workflows/ci.yml` corre en `push` y `pull_request` con dos jobs:

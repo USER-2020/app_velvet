@@ -9,6 +9,25 @@ Esta guía aplica los módulos operativos Velvet Master, Spatie Permission, los 
 - Nunca ejecutar en producción: `php artisan migrate:fresh`, `php artisan migrate:refresh`, `php artisan migrate:rollback`, `php artisan db:seed`, `TestUsersSeeder`, `TestOperationalModelsAndMonitorsSeeder`, `TrainingDataSeeder` ni `DatabaseSeeder`.
 - No ejecutar `php artisan storage:link`. Documentos y fotos de perfil usan el disco privado `local` y se sirven mediante rutas autorizadas.
 
+### Persistencia de documentos privados en el hosting
+
+Con `FILESYSTEM_DISK=local`, los documentos se guardan en el mismo servidor,
+bajo `storage/app/private`. Esta carpeta no debe formar parte de un release
+temporal ni eliminarse durante un despliegue: debe conservarse entre versiones
+y entrar en el esquema de backup del proveedor. La carpeta esperada para los
+documentos de contratacion es `storage/app/private/lead-documents/contracts`.
+
+Verificar la carpeta y los permisos desde la raiz del proyecto:
+
+```bash
+mkdir -p storage/app/private/lead-documents/contracts
+chmod -R 775 storage bootstrap/cache
+```
+
+No publicar esta carpeta con `storage:link`. La vista y descarga se entregan
+por rutas autenticadas o firmadas, despues de comprobar el permiso y la
+pertenencia del documento.
+
 ## Orden recomendado
 
 Ejecutar los comandos desde la carpeta raíz de la versión ya desplegada. Si el servidor usa releases con enlaces simbólicos, hacerlo dentro del release nuevo antes de apuntar el enlace `current`.
@@ -120,6 +139,40 @@ Validar manualmente con una cuenta real autorizada:
 3. Una modelo ve su pipeline, sus rooms y su perfil sin acceder a datos de otra persona.
 4. Desde **Mi perfil**, una foto JPG/PNG/WebP de hasta 5 MB se muestra en el avatar; el archivo queda en almacenamiento privado y `/profile/photo` requiere sesión autenticada.
 5. Revisar `storage/logs/laravel.log` y el monitor de errores por excepciones de migración, permisos, colas o almacenamiento.
+
+### Diagnostico de una preview que devuelve 500
+
+La primera linea del log contiene la causa; el resto del stack trace suele ser
+solo la tuberia de Laravel. Para seguir una peticion en el hosting:
+
+```bash
+tail -f storage/logs/laravel.log
+```
+
+Si aparece `Call to undefined method App\\Http\\Controllers\\DocumentsController::authorize()`,
+el release contiene un controlador anterior. Publicar la version que usa
+`Gate::authorize('view', $document)` y limpiar caches:
+
+```bash
+php artisan optimize:clear
+```
+
+Si el error indica que el archivo no existe, comprobar el registro y su ruta
+fisica sin exponer el archivo:
+
+```bash
+php artisan tinker
+```
+
+```php
+$document = App\\Models\\LeadDocument::find(6);
+Storage::disk('local')->exists($document->path);
+Storage::disk('local')->path($document->path);
+```
+
+Una base de datos puede conservar el registro aunque el archivo no se haya
+restaurado. En ese caso se debe restaurar `storage/app/private` desde el backup
+o volver a cargar el documento.
 
 ## Referencia de comandos
 
