@@ -9,6 +9,7 @@ use App\Services\ContractingInvitationService;
 use App\Services\RealtimePublisher;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -59,7 +60,7 @@ class DocumentsController extends Controller
 
     public function preview(LeadDocument $document)
     {
-        $this->authorize('view', $document);
+        Gate::authorize('view', $document);
         abort_unless(Storage::disk('local')->exists($document->path), 404);
         app(AuditLogger::class)->record('documents.previewed', $document, ['lead_id' => $document->lead_id, 'type' => $document->type]);
 
@@ -71,7 +72,7 @@ class DocumentsController extends Controller
 
     public function download(LeadDocument $document)
     {
-        $this->authorize('view', $document);
+        Gate::authorize('view', $document);
         abort_unless(Storage::disk('local')->exists($document->path), 404);
         app(AuditLogger::class)->record('documents.downloaded', $document, ['lead_id' => $document->lead_id, 'type' => $document->type]);
 

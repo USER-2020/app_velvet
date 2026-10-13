@@ -350,6 +350,31 @@ class RecruitmentTest extends TestCase
             ->where('requirements.0.review_note', 'La imagen debe verse completa y sin reflejos.'));
     }
 
+    public function test_admin_can_preview_a_stored_document(): void
+    {
+        Storage::fake('local');
+        $payload = $this->applicationPayload();
+        unset($payload['data_consent']);
+        $lead = Lead::create(['code' => 'VEL-LEAD-000012', 'status' => 'CONVERTED', ...$payload]);
+        $document = LeadDocument::create([
+            'lead_id' => $lead->id,
+            'type' => 'contract_document',
+            'original_name' => 'identidad.pdf',
+            'path' => 'lead-documents/identidad.pdf',
+            'mime_type' => 'application/pdf',
+            'size' => 12,
+            'status' => 'PENDING',
+        ]);
+        Storage::disk('local')->put($document->path, '%PDF-1.4 test');
+
+        $admin = User::factory()->create()->assignRole('admin');
+
+        $this->actingAs($admin)
+            ->get("/admin/documents/{$document->id}/preview")
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/pdf');
+    }
+
     public function test_verifying_all_contract_documents_sends_booking_agenda_once(): void
     {
         Mail::fake();

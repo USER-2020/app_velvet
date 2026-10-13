@@ -74,6 +74,11 @@ Acciones de monitor sobre reservas y plataformas:
 
 Las acciones mutables usan `PUT`, `PATCH`, `POST` o `DELETE` y suelen tener un permiso más específico que la consulta del módulo. La matriz completa y vigente está en `routes/web.php` y `RolePermissionSeeder.php`.
 
+El repositorio documental expone `GET /admin/documents/{document}/preview` y
+`GET /admin/documents/{document}/download`. Ambas rutas requieren
+`documents.view`, aplican `LeadDocumentPolicy` mediante `Gate::authorize` y
+leen desde el disco privado `local`; no dependen de `storage:link`.
+
 ## Datos principales
 
 | Modelo | Relaciones/uso |
