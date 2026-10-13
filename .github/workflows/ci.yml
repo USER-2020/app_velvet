@@ -34,6 +34,17 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --optimize-autoloader
 
+      - name: Setup Node for Blade assets
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build frontend assets for backend tests
+        run: |
+          npm ci
+          npm run build
+
       - name: Prepare Laravel
         run: |
           cp .env.example .env
