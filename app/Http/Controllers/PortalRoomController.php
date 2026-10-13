@@ -10,6 +10,8 @@ use App\Enums\CandidateStatus;
 use App\Models\LeadDocument;
 use App\Models\TrainingRecord;
 use App\Services\RealtimePublisher;
+use App\Services\AuditLogger;
+use App\Services\OperationalSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,6 +26,22 @@ use Inertia\Response;
 
 class PortalRoomController extends Controller
 {
+    /** Shared, authorization must be enforced by the caller before using these payloads. */
+    public function modelProfileForMonitor(Candidate $candidate): array
+    {
+        return $this->modelProfilePayload($candidate);
+    }
+
+    public function statisticsForMonitor(Candidate $candidate): array
+    {
+        return $this->statisticsForModels([$candidate->id]);
+    }
+
+    public function platformAccountsForMonitor(Candidate $candidate): array
+    {
+        return $this->platformAccountsFor($candidate);
+    }
+
     public function modelDashboard(Request $request): Response
     {
         if ($this->isTraining($request)) {
@@ -31,16 +49,52 @@ class PortalRoomController extends Controller
         }
 
         $candidate = $this->modelCandidate($request);
+        return Inertia::render('Portal/Model/Dashboard', [
+            'candidate' => $candidate ? $this->candidatePayload($candidate) : null,
+            'statistics' => $candidate ? $this->statisticsForModels([$candidate->id]) : $this->emptyStatistics(),
+            'activityTrend' => $candidate ? $this->activityTrendForModels([$candidate->id]) : $this->emptyActivityTrend(),
+        ]);
+    }
+
+    public function modelRooms(Request $request): Response
+    {
+        if ($this->isTraining($request)) {
+            $payload = $this->trainingModelPayload($request);
+            return Inertia::render('Portal/Model/Rooms', $payload);
+        }
+
+        $candidate = $this->modelCandidate($request);
         $operationalActive = $candidate?->status === CandidateStatus::ACTIVE && (bool) $candidate?->user?->is_active;
 
-        return Inertia::render('Portal/Model/Dashboard', [
+        return Inertia::render('Portal/Model/Rooms', [
             'candidate' => $candidate ? $this->candidatePayload($candidate) : null,
             'rooms' => $this->roomsPayload(),
             'reservations' => $candidate ? $this->reservationQuery()->where('candidate_id', $candidate->id)->latest('starts_at')->limit(30)->get()->map(fn (RoomReservation $reservation) => $this->reservationPayload($reservation))->values() : [],
             'canReserve' => $operationalActive && $request->user()->hasPermissionTo('rooms.reserve_own'),
             'canUse' => $operationalActive && $request->user()->hasPermissionTo('rooms.use_own'),
-            'operationalActive' => $operationalActive,
-            'contractDocuments' => $this->ownDocuments($request),
+        ]);
+    }
+
+    public function modelProfile(Request $request): Response
+    {
+        if ($this->isTraining($request)) {
+            return Inertia::render('Portal/Model/Profile', [
+                'profile' => $this->trainingProfilePayload($request),
+                'statistics' => $this->emptyStatistics(),
+                'documents' => $this->ownDocuments($request),
+                'platformAccounts' => [],
+                'trainingMode' => true,
+            ]);
+        }
+
+        $candidate = $this->modelCandidate($request);
+        abort_unless($candidate, 403, 'Tu usuario todavía no tiene una modelo vinculada.');
+
+        return Inertia::render('Portal/Model/Profile', [
+            'profile' => $this->modelProfilePayload($candidate),
+            'statistics' => $this->statisticsForModels([$candidate->id]),
+            'documents' => $this->ownDocuments($request),
+            'platformAccounts' => $this->platformAccountsFor($candidate),
         ]);
     }
 
@@ -65,6 +119,7 @@ class PortalRoomController extends Controller
     private function monitorPayload(Request $request): array
     {
         $operationalActive = $request->user()->candidate?->status === CandidateStatus::ACTIVE && (bool) $request->user()->is_active;
+        $monitorCandidateId = Candidate::query()->where('user_id', $request->user()->id)->value('id');
         $reservations = $this->reservationQuery()
             ->whereIn('status', ['SCHEDULED', 'IN_USE'])
             ->where('ends_at', '>=', now('America/Bogota')->copy()->subHours(2)->utc())
@@ -74,17 +129,25 @@ class PortalRoomController extends Controller
             ->map(fn (RoomReservation $reservation) => $this->reservationPayload($reservation))
             ->values();
 
+        $assignedModels = Candidate::query()
+            ->where('candidate_type', 'MODEL')
+            ->when($monitorCandidateId, fn ($query) => $query->whereHas('modelAssignments', fn ($assignments) => $assignments
+                ->where('monitor_candidate_id', $monitorCandidateId)
+                ->whereNull('ended_at')), fn ($query) => $query->whereRaw('1 = 0'));
+        $assignedModelIds = $assignedModels->pluck('id')->all();
+
         return [
             'rooms' => $this->roomsPayload(),
             'reservations' => $reservations,
-            'candidates' => Candidate::query()
+            'candidates' => $assignedModels
                 ->with('lead:id,first_name,last_name')
-                ->where('candidate_type', 'MODEL')
                 ->whereNotIn('status', ['DISCARDED', 'WITHDRAWN'])
                 ->orderBy('id', 'desc')
                 ->get(['id', 'code', 'lead_id'])
                 ->map(fn (Candidate $candidate) => $this->candidatePayload($candidate))
                 ->values(),
+            'statistics' => [...$this->statisticsForModels($assignedModelIds), 'assigned_models' => count($assignedModelIds)],
+            'activityTrend' => $this->activityTrendForModels($assignedModelIds),
             'canReserve' => $operationalActive && $request->user()->hasPermissionTo('rooms.manage_reservations'),
             'canUse' => $operationalActive && $request->user()->hasPermissionTo('rooms.manage_usage'),
             'operationalActive' => $operationalActive,
@@ -95,12 +158,14 @@ class PortalRoomController extends Controller
     public function previewContractDocument(Request $request, LeadDocument $document)
     {
         $this->authorizeContractDocument($request, $document);
+        app(AuditLogger::class)->record('portal_documents.previewed', $document, ['lead_id' => $document->lead_id, 'type' => $document->type]);
         return response()->file(Storage::disk('local')->path($document->path), ['Content-Type' => $document->mime_type, 'Content-Disposition' => 'inline; filename="' . addslashes($document->original_name) . '"']);
     }
 
     public function downloadContractDocument(Request $request, LeadDocument $document)
     {
         $this->authorizeContractDocument($request, $document);
+        app(AuditLogger::class)->record('portal_documents.downloaded', $document, ['lead_id' => $document->lead_id, 'type' => $document->type]);
         return Storage::disk('local')->download($document->path, $document->original_name, ['Content-Type' => $document->mime_type]);
     }
 
@@ -132,7 +197,14 @@ class PortalRoomController extends Controller
         $data = $request->validate(array_merge($this->reservationRules(), [
             'candidate_id' => ['required', 'integer', 'exists:candidates,id'],
         ]));
-        $candidate = Candidate::query()->where('candidate_type', 'MODEL')->findOrFail($data['candidate_id']);
+        $monitorCandidateId = Candidate::query()->where('user_id', $request->user()->id)->value('id');
+        $candidate = Candidate::query()
+            ->where('candidate_type', 'MODEL')
+            ->whereKey($data['candidate_id'])
+            ->whereHas('modelAssignments', fn ($assignments) => $assignments
+                ->where('monitor_candidate_id', $monitorCandidateId)
+                ->whereNull('ended_at'))
+            ->firstOrFail();
         $reservation = $this->createReservation($request, $data, $candidate, null);
 
         $this->publish('room.reservation.created', ['room_id' => $reservation->room_id, 'reservation_id' => $reservation->id]);
@@ -163,6 +235,15 @@ class PortalRoomController extends Controller
 
         $reservation = RoomReservation::findOrFail($reservation);
         abort_unless($request->user()->hasPermissionTo('rooms.manage_usage'), 403);
+        if ($request->user()->hasRole('monitor')) {
+            $monitorCandidateId = Candidate::query()->where('user_id', $request->user()->id)->value('id');
+            abort_unless($monitorCandidateId && $reservation->candidate_id && Candidate::query()
+                ->whereKey($reservation->candidate_id)
+                ->whereHas('modelAssignments', fn ($assignment) => $assignment
+                    ->where('monitor_candidate_id', $monitorCandidateId)
+                    ->whereNull('ended_at'))
+                ->exists(), 403);
+        }
         $data = $request->validate(['status' => ['required', Rule::in(['IN_USE', 'COMPLETED', 'CANCELLED', 'NO_SHOW'])]]);
         $this->changeReservationStatus($request, $reservation, [$data['status']]);
 
@@ -205,6 +286,8 @@ class PortalRoomController extends Controller
             'operationalActive' => false,
             'trainingMode' => true,
             'contractDocuments' => $this->ownDocuments($request),
+            'statistics' => $this->emptyStatistics(),
+            'activityTrend' => $this->emptyActivityTrend(),
         ];
     }
 
@@ -225,6 +308,8 @@ class PortalRoomController extends Controller
             'operationalActive' => false,
             'trainingMode' => true,
             'contractDocuments' => [],
+            'statistics' => $this->emptyStatistics(),
+            'activityTrend' => $this->emptyActivityTrend(),
         ];
     }
 
@@ -316,6 +401,8 @@ class PortalRoomController extends Controller
         return LeadDocument::query()->where('lead_id', $candidate->lead_id)->latest()->get()->map(fn (LeadDocument $document) => [
             'id' => $document->id,
             'name' => $document->original_name,
+            'type' => $document->type,
+            'status' => $document->status,
             'mime_type' => $document->mime_type,
             'size' => $document->size,
             'created_at' => $document->created_at?->toIso8601String(),
@@ -371,7 +458,8 @@ class PortalRoomController extends Controller
 
     private function changeReservationStatus(Request $request, RoomReservation $reservation, array $allowedNext): void
     {
-        DB::transaction(function () use ($request, $reservation, $allowedNext) {
+        $sessionService = app(OperationalSessionService::class);
+        DB::transaction(function () use ($request, $reservation, $allowedNext, $sessionService) {
             $reservation->refresh();
             $next = request()->validate(['status' => ['sometimes', Rule::in(['IN_USE', 'COMPLETED', 'CANCELLED', 'NO_SHOW'])]])['status'] ?? $allowedNext[0];
             $allowedFrom = match ($next) {
@@ -392,6 +480,12 @@ class PortalRoomController extends Controller
             if (in_array($next, ['COMPLETED', 'CANCELLED', 'NO_SHOW'], true)) $attributes['ended_at'] = $now;
             $previous = $reservation->status;
             $reservation->update($attributes);
+            if ($next === 'IN_USE') {
+                $sessionService->startForReservation($reservation, $request->user()->id, null, $now);
+            }
+            if ($next === 'COMPLETED') {
+                $sessionService->finishForReservation($reservation, $now);
+            }
             RoomUsageLog::create([
                 'room_id' => $reservation->room_id,
                 'room_reservation_id' => $reservation->id,
@@ -463,12 +557,156 @@ class PortalRoomController extends Controller
             'status' => $reservation->status,
             'starts_at' => $reservation->starts_at?->timezone('America/Bogota')->toIso8601String(),
             'ends_at' => $reservation->ends_at?->timezone('America/Bogota')->toIso8601String(),
+            'checked_in_at' => $reservation->checked_in_at?->timezone('America/Bogota')->toIso8601String(),
+            'started_at' => $reservation->started_at?->timezone('America/Bogota')->toIso8601String(),
+            'ended_at' => $reservation->ended_at?->timezone('America/Bogota')->toIso8601String(),
+            'duration_minutes' => $reservation->started_at && $reservation->ended_at ? max(0, $reservation->started_at->diffInMinutes($reservation->ended_at)) : null,
             'candidate_id' => $reservation->candidate_id,
             'candidate_name' => $reservation->candidate?->lead?->full_name,
             'candidate_code' => $reservation->candidate?->code,
             'reserved_by' => $reservation->reservedBy?->name,
             'notes' => $reservation->notes,
         ];
+    }
+
+    private function emptyStatistics(): array
+    {
+        return [
+            'sessions_month' => 0,
+            'session_minutes' => 0,
+            'tokens_month' => 0,
+            'upcoming_reservations' => 0,
+            'attended_shifts' => 0,
+        ];
+    }
+
+    private function emptyActivityTrend(): array
+    {
+        return collect(range(5, 0))->map(fn ($offset) => ['label' => now('America/Bogota')->subWeeks($offset)->format('d M'), 'sessions' => 0, 'tokens' => 0])->values()->all();
+    }
+
+    /** @param array<int> $candidateIds */
+    private function activityTrendForModels(array $candidateIds): array
+    {
+        if ($candidateIds === []) return $this->emptyActivityTrend();
+
+        $from = now('America/Bogota')->subWeeks(5)->startOfWeek()->utc();
+        $sessions = DB::table('operational_sessions')->whereIn('candidate_id', $candidateIds)->where('started_at', '>=', $from)->get(['id', 'started_at']);
+        $tokensBySession = $sessions->isEmpty() ? collect() : DB::table('production_metrics')->whereIn('operational_session_id', $sessions->pluck('id'))->where('metric_key', 'tokens')->get(['operational_session_id', 'metric_value'])->groupBy('operational_session_id');
+
+        return collect(range(5, 0))->map(function ($offset) use ($sessions, $tokensBySession) {
+            $start = now('America/Bogota')->subWeeks($offset)->startOfWeek();
+            $end = $start->copy()->endOfWeek();
+            $weekSessions = $sessions->filter(fn ($session) => Carbon::parse($session->started_at)->timezone('America/Bogota')->betweenIncluded($start, $end));
+            return ['label' => $start->format('d M'), 'sessions' => $weekSessions->count(), 'tokens' => (float) $weekSessions->sum(fn ($session) => $tokensBySession->get($session->id, collect())->sum('metric_value'))];
+        })->values()->all();
+    }
+
+    /** @param array<int> $candidateIds */
+    private function statisticsForModels(array $candidateIds): array
+    {
+        if ($candidateIds === []) {
+            return $this->emptyStatistics();
+        }
+
+        $monthStart = now('America/Bogota')->startOfMonth()->utc();
+        $sessions = DB::table('operational_sessions')
+            ->whereIn('candidate_id', $candidateIds)
+            ->where('started_at', '>=', $monthStart)
+            ->get(['id', 'started_at', 'ended_at']);
+        $sessionIds = $sessions->pluck('id')->all();
+        $sessionMinutes = $sessions->sum(fn ($session) => Carbon::parse($session->started_at)->diffInMinutes($session->ended_at ? Carbon::parse($session->ended_at) : now()));
+
+        $tokens = $sessionIds === [] ? 0 : (float) DB::table('production_metrics')
+            ->whereIn('operational_session_id', $sessionIds)
+            ->where('metric_key', 'tokens')
+            ->sum('metric_value');
+
+        $attendedShifts = DB::table('operational_shifts as shift')
+            ->join('shift_attendances as attendance', 'attendance.operational_shift_id', '=', 'shift.id')
+            ->whereIn('shift.model_candidate_id', $candidateIds)
+            ->where('shift.starts_at', '>=', $monthStart)
+            ->whereIn('attendance.status', ['PRESENT', 'COMPLETED'])
+            ->count();
+
+        return [
+            'sessions_month' => $sessions->count(),
+            'session_minutes' => $sessionMinutes,
+            'tokens_month' => $tokens,
+            'upcoming_reservations' => RoomReservation::query()->whereIn('candidate_id', $candidateIds)->whereIn('status', ['SCHEDULED', 'IN_USE'])->where('ends_at', '>=', now())->count(),
+            'attended_shifts' => $attendedShifts,
+        ];
+    }
+
+    private function modelProfilePayload(Candidate $candidate): array
+    {
+        $candidate->loadMissing(['lead', 'operationalProfile']);
+        $assignment = $candidate->currentMonitorAssignment()->with('monitorCandidate.lead')->first();
+        $lead = $candidate->lead;
+        $profile = $candidate->operationalProfile;
+
+        return [
+            'code' => $candidate->code,
+            'status' => $candidate->status?->value,
+            'personal' => [
+                'name' => $lead?->full_name,
+                'email' => $lead?->email,
+                'phone' => $lead?->phone,
+                'city' => $lead?->city,
+                'country' => $lead?->country,
+                'availability' => $lead?->availability,
+                'work_mode' => $lead?->work_mode,
+                'experience_years' => $lead?->experience_years,
+                'english_level' => $lead?->english_level,
+            ],
+            'operational' => [
+                'status' => $profile?->operational_status,
+                'onboarding_completed_at' => $profile?->onboarding_completed_at?->toIso8601String(),
+                'induction_completed_at' => $profile?->induction_completed_at?->toIso8601String(),
+                'activated_at' => $profile?->activated_at?->toIso8601String(),
+                'monitor_name' => $assignment?->monitorCandidate?->lead?->full_name,
+            ],
+        ];
+    }
+
+    private function trainingProfilePayload(Request $request): array
+    {
+        return [
+            'code' => 'SANDBOX',
+            'status' => 'INDUCTION',
+            'personal' => ['name' => $request->user()->name, 'email' => $request->user()->email],
+            'operational' => ['status' => 'TRAINING', 'monitor_name' => null],
+        ];
+    }
+
+    private function platformAccountsFor(Candidate $candidate): array
+    {
+        return DB::table('model_platform_accounts as account')
+            ->join('studio_accounts as studio', 'studio.id', '=', 'account.studio_account_id')
+            ->join('platform_catalogs as platform', 'platform.id', '=', 'studio.platform_catalog_id')
+            ->where('account.candidate_id', $candidate->id)
+            ->whereNull('account.unlinked_at')
+            ->orderBy('platform.name')
+            ->get([
+                'account.id',
+                'platform.name as platform_name',
+                'studio.name as studio_name',
+                'account.account_identifier',
+                'account.ownership_type',
+                'account.status',
+                'account.is_authorized',
+                'account.linked_at',
+            ])
+            ->map(fn ($account) => [
+                'id' => $account->id,
+                'platform_name' => $account->platform_name,
+                'studio_name' => $account->studio_name,
+                'account_identifier' => $account->account_identifier,
+                'ownership_type' => $account->ownership_type,
+                'status' => $account->status,
+                'is_authorized' => (bool) $account->is_authorized,
+                'linked_at' => $account->linked_at ? Carbon::parse($account->linked_at)->toIso8601String() : null,
+            ])->all();
     }
 
     private function candidatePayload(Candidate $candidate): array

@@ -32,6 +32,8 @@ const isPublicPath = (pathname) => pathname === '/'
     || pathname.startsWith('/confirm-password');
 
 const pathFromVisit = (visit) => new URL(visit?.url || window.location.href, window.location.origin).pathname;
+const isPublicGetVisit = (visit) => String(visit?.method || 'get').toLowerCase() === 'get'
+    && isPublicPath(pathFromVisit(visit));
 
 function PublicRouteOverlay() {
     const [active, setActive] = useState(() => isPublicPath(window.location.pathname));
@@ -58,7 +60,10 @@ function PublicRouteOverlay() {
         };
 
         const onStart = (event) => {
-            const publicRoute = isPublicPath(pathFromVisit(event.detail?.visit));
+            // Un POST a /login o /logout conserva esa URL en el objeto de visita,
+            // aunque Laravel responda con una redirección al dashboard. Solo las
+            // navegaciones GET hacia una ruta pública deben mostrar este overlay.
+            const publicRoute = isPublicGetVisit(event.detail?.visit);
             window.dispatchEvent(new CustomEvent('velvet-public-route-changed', { detail: { publicRoute } }));
             clearTimers();
             setFading(false);
@@ -66,7 +71,10 @@ function PublicRouteOverlay() {
         };
 
         const onFinish = (event) => {
-            const publicRoute = isPublicPath(pathFromVisit(event.detail?.visit));
+            // La URL del navegador ya corresponde al destino final de un redirect
+            // de Inertia; evita dejar el login visible tras autenticar otro usuario.
+            const publicRoute = isPublicGetVisit(event.detail?.visit)
+                && isPublicPath(window.location.pathname);
             if (publicRoute) schedule();
             else {
                 clearTimers();

@@ -4,6 +4,7 @@ import { FiCalendar, FiCheckCircle, FiClock, FiPlus, FiRefreshCw, FiTrash2, FiX 
 import Layout from '../Layout';
 import VelvetDatePicker from '@/Components/VelvetDatePicker';
 import VelvetTimePicker from '@/Components/VelvetTimePicker';
+import { subscribeToRealtime } from '../../../../lib/ably';
 
 const weekdays = [['1', 'Lun'], ['2', 'Mar'], ['3', 'Mié'], ['4', 'Jue'], ['5', 'Vie'], ['6', 'Sáb'], ['7', 'Dom']];
 const sectionNav = [['slots-generator', 'Generar franjas'], ['availability', 'Próximas franjas'], ['booking', 'Programar'], ['documents', 'Documentos'], ['reschedule', 'Reprogramar']];
@@ -32,6 +33,11 @@ export default function Index({ slots = [], candidates = [], appointments = [] }
         sections.forEach((section) => observer.observe(section));
         return () => observer.disconnect();
     }, []);
+    useEffect(() => subscribeToRealtime((_, eventName) => {
+        if (['candidate.status_changed', 'candidate.updated', 'candidate.contracting_invited', 'contract.slots_generated'].includes(eventName)) {
+            router.reload({ only: ['slots', 'candidates', 'appointments'], preserveScroll: true, preserveState: true });
+        }
+    }), []);
     const generate = (event) => { event.preventDefault(); form.post('/admin/contracting/slots', { preserveScroll: true, onSuccess: () => form.reset('from_date', 'to_date') }); };
     const book = (event) => { event.preventDefault(); booking.post('/admin/contracting/appointments', { preserveScroll: true, onSuccess: () => booking.reset() }); };
     const toggleDay = (day) => form.setData('weekdays', form.data.weekdays.includes(day) ? form.data.weekdays.filter((item) => item !== day) : [...form.data.weekdays, day]);

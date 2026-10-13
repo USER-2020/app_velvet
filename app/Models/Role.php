@@ -2,37 +2,40 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
+use Spatie\Permission\Contracts\Role as RoleContract;
+use Spatie\Permission\Exceptions\RoleDoesNotExist;
+use Spatie\Permission\Guard;
+use Spatie\Permission\Models\Role as SpatieRole;
 
-class Role extends Model
+class Role extends SpatieRole
 {
-    use HasFactory;
-
-    protected $fillable = ['name', 'slug', 'description', 'is_system', 'parent_role_id'];
+    protected $fillable = ['name', 'slug', 'description', 'is_system', 'parent_role_id', 'guard_name'];
 
     protected function casts(): array
     {
         return ['is_system' => 'boolean'];
     }
 
-    public function permissions()
+    /** Roles are addressed by slug throughout the existing application. */
+    public static function findByName(string $name, ?string $guardName = null): RoleContract
     {
-        return $this->belongsToMany(Permission::class, 'role_permission');
-    }
+        $guardName ??= Guard::getDefaultName(static::class);
+        $role = static::query()->where('slug', $name)->where('guard_name', $guardName)->first();
 
-    public function users()
-    {
-        return $this->belongsToMany(User::class, 'user_role');
+        if ($role) {
+            return $role;
+        }
+
+        throw RoleDoesNotExist::named($name, $guardName);
     }
 
     public function parent()
     {
-        return $this->belongsTo(Role::class, 'parent_role_id');
+        return $this->belongsTo(self::class, 'parent_role_id');
     }
 
     public function children()
     {
-        return $this->hasMany(Role::class, 'parent_role_id');
+        return $this->hasMany(self::class, 'parent_role_id');
     }
 }

@@ -16,15 +16,22 @@ use App\Enums\LeadStatus;
 use App\Http\Requests\StoreLeadRequest;
 use App\Models\Candidate;
 use App\Models\CandidateActivity;
+use App\Models\ContractSlot;
 use App\Models\LeadActivity;
 use App\Models\LeadDocument;
 use App\Models\Lead;
 use App\Models\OnboardingDraft;
 use App\Models\TrainingRecord;
+use App\Models\OperationalProfile;
+use App\Models\OperationalTrainingRecord;
+use App\Models\StudioAccount;
 use App\Services\ApplicationDiscardMailService;
 use App\Services\AdmittedMailService;
 use App\Services\RecruitmentDashboardService;
 use App\Services\InterviewInvitationService;
+use App\Services\ContractingInvitationService;
+use App\Services\AuditLogger;
+use App\Services\ProfilePhotoService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,6 +43,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -126,7 +134,7 @@ class RecruitmentController extends Controller
             'experience' => ['required', 'string', 'min:20', 'max:5000'],
             'motivation' => ['required', 'string', 'min:20', 'max:5000'],
             'social_networks' => ['nullable', 'string', 'max:500'],
-            'identity_document' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
+            'identity_document' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120'],
             'accept_terms' => ['accepted'],
         ]);
 
@@ -407,6 +415,9 @@ class RecruitmentController extends Controller
             'identity_verified_at' => $status === 'APPROVED' ? now() : null,
             'identity_verification_failure_reason' => $summary['failure_reason'] ?? null,
         ]);
+        if ($status === 'APPROVED') {
+            app(ProfilePhotoService::class)->importDefaultFromDidit($candidate);
+        }
         if (! $sameDecision) {
             $activity = CandidateActivity::create([
                 'candidate_id' => $candidate->id,
@@ -778,6 +789,7 @@ class RecruitmentController extends Controller
         $discardTransition = $validated['status'] === CandidateStatus::DISCARDED->value
             && $previous !== CandidateStatus::DISCARDED->value
             && $previous !== LeadStatus::DISCARDED->value;
+        $interview = null;
 
         if ($lead->candidate && $validated['status'] === CandidateStatus::INTERVIEW->value && $previous !== CandidateStatus::INTERVIEW->value) {
             try {
@@ -854,6 +866,11 @@ class RecruitmentController extends Controller
             ]);
         $this->publishLeadEvent($lead->fresh('candidate'), $lead->candidate ? 'candidate.status_changed' : 'lead.status_changed', [
             'activity' => ['id' => $activity->id, 'description' => $activity->description, 'created_at' => $activity->created_at?->toIso8601String()],
+            'activities' => collect([$interview?->getRelation('invitationActivity'), $activity])
+                ->filter()
+                ->map(fn (CandidateActivity|LeadActivity $item) => ['id' => $item->id, 'description' => $item->description, 'created_at' => $item->created_at?->toIso8601String()])
+                ->values()
+                ->all(),
             'notification' => ['title' => 'Etapa actualizada', 'description' => "{$lead->full_name}: {$nextLabel}."],
         ]);
 
@@ -1021,17 +1038,30 @@ class RecruitmentController extends Controller
 
         $query = Candidate::query()
             ->with('lead')
-            ->where('candidate_type', CandidateType::MODEL)
+            ->where('candidate_type', CandidateType::MODEL->value)
             ->whereIn('status', [
-                CandidateStatus::ADMITTED,
-                CandidateStatus::WAITING,
-                CandidateStatus::ONBOARDING,
-                CandidateStatus::CONTRACTING,
-                CandidateStatus::INDUCTION,
-                CandidateStatus::READY_TO_ACTIVATE,
-                CandidateStatus::ACTIVE,
+                CandidateStatus::ADMITTED->value,
+                CandidateStatus::WAITING->value,
+                CandidateStatus::ONBOARDING->value,
+                CandidateStatus::CONTRACTING->value,
+                CandidateStatus::INDUCTION->value,
+                CandidateStatus::READY_TO_ACTIVATE->value,
+                CandidateStatus::ACTIVE->value,
             ])
             ->latest();
+
+        if ($request->user()?->hasRole('monitor')) {
+            $monitorCandidateId = Candidate::query()
+                ->where('user_id', $request->user()->id)
+                ->value('id');
+            if (! $monitorCandidateId) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereHas('modelAssignments', fn ($assignment) => $assignment
+                    ->where('monitor_candidate_id', $monitorCandidateId)
+                    ->whereNull('ended_at'));
+            }
+        }
 
         if ($search = $request->string('search')->trim()->value()) {
             $query->whereHas('lead', fn ($lead) => $lead
@@ -1063,15 +1093,50 @@ class RecruitmentController extends Controller
                 && ! in_array($candidate->status, [CandidateStatus::DISCARDED, CandidateStatus::WITHDRAWN], true),
             404,
         );
+        abort_unless(Gate::forUser($request->user())->allows('viewAssignedModel', $candidate), 403);
 
         return Inertia::render('Admin/MonitorModels/Show', [
             'model' => $candidate->load('lead'),
+            'operationalProfile' => app(PortalRoomController::class)->modelProfileForMonitor($candidate),
+            'statistics' => app(PortalRoomController::class)->statisticsForMonitor($candidate),
+            'platformAccounts' => app(PortalRoomController::class)->platformAccountsForMonitor($candidate),
+            'availablePlatformAccounts' => $request->user()->hasPermissionTo('studio_accounts.assign_assigned')
+                ? $this->availablePlatformAccountsForMonitor()
+                : [],
+            'canManagePlatformAccounts' => $request->user()->hasPermissionTo('studio_accounts.assign_assigned'),
         ]);
+    }
+
+    private function availablePlatformAccountsForMonitor(): array
+    {
+        return StudioAccount::query()
+            ->with('platform:id,name,is_active')
+            ->where('status', '!=', 'DISABLED')
+            ->whereHas('platform', fn ($query) => $query->where('is_active', true))
+            ->orderBy('name')
+            ->get(['id', 'platform_catalog_id', 'name', 'status', 'connection_mode'])
+            ->map(fn (StudioAccount $account) => [
+                'id' => $account->id,
+                'name' => $account->name,
+                'platform' => $account->platform?->name,
+                'status' => $account->status,
+                'connection_mode' => $account->connection_mode,
+            ])
+            ->values()
+            ->all();
     }
 
     private function monitorIsInTraining(Request $request): bool
     {
-        return $request->user()?->hasRole('monitor') && $request->user()->candidate?->status !== CandidateStatus::ACTIVE;
+        if (! $request->user()?->hasRole('monitor')) {
+            return false;
+        }
+
+        $candidate = Candidate::query()
+            ->where('user_id', $request->user()->id)
+            ->first();
+
+        return $candidate?->status !== CandidateStatus::ACTIVE;
     }
 
     private function trainingModelPayload(TrainingRecord $record): array
@@ -1096,9 +1161,56 @@ class RecruitmentController extends Controller
         ];
     }
 
-    public function candidate(Candidate $candidate): Response
+    public function candidate(Request $request, Candidate $candidate): Response
     {
-        return Inertia::render('Admin/Recruitment/Candidates/Show', ['candidate' => $candidate->load(['lead.documents', 'user', 'activities.user', 'interviews.slot'])]);
+        $candidate->load([
+            'lead.documents',
+            'user',
+            'activities.user',
+            'interviews.slot',
+            'contractAppointments.slot',
+            'contractInvitations',
+            'operationalProfile',
+            'trainingRecords.completedBy',
+            'modelAssignments' => fn ($query) => $query->latest('assigned_at')->with([
+                'monitorCandidate.lead',
+                'assignedBy',
+                'endedBy',
+            ]),
+        ]);
+
+        $canManageAssignments = $candidate->candidate_type === CandidateType::MODEL
+            && $request->user()->hasPermissionTo('models.assign_monitor');
+
+        return Inertia::render('Admin/Recruitment/Candidates/Show', [
+            'candidate' => $candidate,
+            'contracting' => [
+                'available_slots' => ContractSlot::query()
+                    ->where('status', 'AVAILABLE')
+                    ->where('starts_at', '>', now('UTC'))
+                    ->count(),
+            ],
+            'operational' => [
+                'can_manage_training' => $request->user()->hasPermissionTo('onboarding.manage'),
+                'can_manage_assignments' => $canManageAssignments,
+                'can_end_assignments' => $candidate->candidate_type === CandidateType::MODEL
+                    && $request->user()->hasPermissionTo('models.change_monitor'),
+                'available_monitors' => $canManageAssignments
+                    ? Candidate::query()
+                        ->with('lead')
+                        ->where('candidate_type', CandidateType::MONITOR->value)
+                        ->where('status', CandidateStatus::ACTIVE->value)
+                        ->orderBy('id')
+                        ->get(['id', 'code', 'lead_id', 'status', 'candidate_type'])
+                        ->map(fn (Candidate $monitor) => [
+                            'id' => $monitor->id,
+                            'code' => $monitor->code,
+                            'name' => $monitor->lead?->full_name,
+                        ])
+                        ->values()
+                    : [],
+            ],
+        ]);
     }
 
     public function startContracting(Request $request, Candidate $candidate): RedirectResponse
@@ -1136,6 +1248,37 @@ class RecruitmentController extends Controller
         }
 
         return back()->with('success', 'Contratación iniciada. Se enviaron los requisitos al correo registrado.');
+    }
+
+    public function sendContractingInvitation(Request $request, Candidate $candidate): RedirectResponse
+    {
+        $candidate->loadMissing('lead');
+        $service = app(ContractingInvitationService::class);
+
+        if ($candidate->status !== CandidateStatus::WAITING) {
+            return back()->withErrors(['contracting' => 'El candidato debe estar En espera para enviar la agenda.']);
+        }
+
+        if (! $service->hasVerifiedRequiredDocuments($candidate)) {
+            return back()->withErrors(['contracting' => 'Primero deben estar aprobados los tres documentos obligatorios.']);
+        }
+
+        if (! $service->hasAvailableSlots()) {
+            return back()->withErrors(['contracting' => 'Crea al menos una franja futura antes de enviar la agenda.']);
+        }
+
+        $invitation = $service->send($candidate, $request->user());
+        if (! $invitation) {
+            return back()->withErrors(['contracting' => 'La agenda ya fue enviada o no está disponible para este candidato.']);
+        }
+
+        $this->publishLeadEvent($candidate->fresh('lead')->lead, 'candidate.contracting_invited', [
+            'candidate_id' => $candidate->id,
+            'invitation_id' => $invitation->id,
+            'notification' => ['title' => 'Agenda de contratación enviada', 'description' => "Se enviaron horarios de contratación a {$candidate->lead->full_name}."],
+        ]);
+
+        return back()->with('success', 'Agenda enviada al correo del candidato.');
     }
 
     public function activateCandidateAccess(Request $request, Candidate $candidate): RedirectResponse
@@ -1176,29 +1319,53 @@ class RecruitmentController extends Controller
             $user->syncRoles([$roleSlug]);
             $candidate->update([
                 'user_id' => $user->id,
-                'status' => CandidateStatus::ONBOARDING,
+                'status' => CandidateStatus::INDUCTION,
             ]);
+
+            OperationalProfile::updateOrCreate(
+                ['candidate_id' => $candidate->id],
+                [
+                    'profile_type' => $candidate->candidate_type->value,
+                    'operational_status' => 'PENDING',
+                    'onboarding_completed_at' => now(),
+                ],
+            );
+
+            OperationalTrainingRecord::firstOrCreate(
+                ['candidate_id' => $candidate->id, 'kind' => 'ONBOARDING', 'title' => 'Onboarding administrativo'],
+                [
+                    'status' => 'COMPLETED',
+                    'is_required' => true,
+                    'completed_at' => now(),
+                    'completed_by' => $request->user()->id,
+                    'created_by' => $request->user()->id,
+                    'notes' => 'Acceso operativo creado después de completar la contratación.',
+                ],
+            );
+
+            OperationalTrainingRecord::firstOrCreate(
+                ['candidate_id' => $candidate->id, 'kind' => 'TRAINING', 'title' => 'Inducción operativa inicial'],
+                [
+                    'status' => 'IN_PROGRESS',
+                    'is_required' => true,
+                    'created_by' => $request->user()->id,
+                ],
+            );
 
             $activity = CandidateActivity::create([
                 'candidate_id' => $candidate->id,
                 'user_id' => $request->user()->id,
                 'type' => 'access_created',
-                'description' => 'Acceso al dashboard activado. El candidato pasó a Activo.',
+                'description' => 'Acceso al dashboard creado. El candidato pasó a inducción operativa.',
                 'metadata' => ['user_id' => $user->id, 'role' => $roleSlug],
             ]);
-
-            $activity->update(['description' => 'Acceso al dashboard creado. Se enviaron credenciales temporales; el primer ingreso iniciará la inducción.']);
 
             return [$candidate->fresh(['lead', 'user']), $activity, $temporaryPassword];
         });
 
-        if ($candidate->user && ! $candidate->user->hasVerifiedEmail()) {
-            try {
-                $candidate->user->sendEmailVerificationNotification();
-            } catch (\Throwable $exception) {
-                report($exception);
-            }
-        }
+        // Didit supplies temporary HTTPS image links. Copy the verified portrait after
+        // the user exists, outside the transaction, and keep it on the private disk.
+        app(ProfilePhotoService::class)->importDefaultFromDidit($candidate);
 
         try {
             Mail::to($candidate->lead->email)->send(new CandidateAccessCredentialsMail($candidate, $temporaryPassword));
@@ -1215,7 +1382,7 @@ class RecruitmentController extends Controller
             'notification' => ['title' => 'Credenciales enviadas', 'description' => "Se enviaron las credenciales a {$candidate->lead->full_name}."],
         ]);
 
-        return to_route('admin.candidates.show', $candidate)->with('success', 'Acceso creado. Se enviaron credenciales temporales; el primer ingreso lo pasará a inducción.');
+        return to_route('admin.candidates.show', $candidate)->with('success', 'Acceso creado. Se enviaron credenciales temporales y el perfil pasó a inducción operativa.');
     }
 
     public function updateCandidateAccessStatus(Request $request, Candidate $candidate): RedirectResponse
@@ -1229,6 +1396,14 @@ class RecruitmentController extends Controller
 
         $active = (bool) $validated['active'];
         $candidate->user->update(['is_active' => $active]);
+        app(AuditLogger::class)->record('access.user_status_changed', $candidate->user, ['candidate_id' => $candidate->id, 'is_active' => $active]);
+        OperationalProfile::updateOrCreate(
+            ['candidate_id' => $candidate->id],
+            [
+                'profile_type' => $candidate->candidate_type->value,
+                'operational_status' => $active ? 'ACTIVE' : 'SUSPENDED',
+            ],
+        );
         $activity = CandidateActivity::create([
             'candidate_id' => $candidate->id,
             'user_id' => $request->user()->id,
@@ -1386,6 +1561,7 @@ class RecruitmentController extends Controller
         $nextStatus = CandidateStatus::from($validated['status']);
         $previousStatus = $candidate->status;
         $discardTransition = $nextStatus === CandidateStatus::DISCARDED && $previousStatus !== CandidateStatus::DISCARDED;
+        $interview = null;
 
         if ($nextStatus === CandidateStatus::DISCARDED && ! $request->filled('reason')) {
             return back()->withErrors(['status' => 'Usa la opción “Descartar” e indica el motivo.']);
@@ -1415,8 +1591,30 @@ class RecruitmentController extends Controller
             return back()->withErrors(['status' => 'El candidato debe completar la contratación antes de pasar a onboarding.']);
         }
 
+        if ($nextStatus === CandidateStatus::INDUCTION) {
+            return back()->withErrors(['status' => 'Crea el acceso al dashboard desde onboarding para iniciar la inducción operativa.']);
+        }
+
+        if ($nextStatus === CandidateStatus::READY_TO_ACTIVATE) {
+            if ($previousStatus !== CandidateStatus::INDUCTION) {
+                return back()->withErrors(['status' => 'El candidato debe completar la inducción antes de quedar listo para activar.']);
+            }
+
+            $hasPendingRequiredTraining = $candidate->trainingRecords()
+                ->where('is_required', true)
+                ->whereNotIn('status', ['COMPLETED', 'WAIVED'])
+                ->exists();
+            if ($hasPendingRequiredTraining) {
+                return back()->withErrors(['status' => 'Completa o exime los registros obligatorios de inducción antes de continuar.']);
+            }
+        }
+
         if ($nextStatus === CandidateStatus::ACTIVE && (! $candidate->user_id || ! $candidate->user?->is_active)) {
             return back()->withErrors(['status' => 'Activa primero el acceso al dashboard desde el panel administrativo.']);
+        }
+
+        if ($nextStatus === CandidateStatus::ACTIVE && $previousStatus !== CandidateStatus::READY_TO_ACTIVATE) {
+            return back()->withErrors(['status' => 'El candidato debe quedar listo para activar antes de habilitar la operación.']);
         }
 
         if ($previousStatus === $nextStatus) {
@@ -1451,6 +1649,29 @@ class RecruitmentController extends Controller
             $attributes['discard_reason'] = $request->string('reason')->trim()->value();
         }
         $candidate->update($attributes);
+
+        if ($nextStatus === CandidateStatus::READY_TO_ACTIVATE) {
+            OperationalProfile::updateOrCreate(
+                ['candidate_id' => $candidate->id],
+                [
+                    'profile_type' => $candidate->candidate_type->value,
+                    'operational_status' => 'PENDING',
+                    'induction_completed_at' => now(),
+                ],
+            );
+        }
+
+        if ($nextStatus === CandidateStatus::ACTIVE) {
+            OperationalProfile::updateOrCreate(
+                ['candidate_id' => $candidate->id],
+                [
+                    'profile_type' => $candidate->candidate_type->value,
+                    'operational_status' => 'ACTIVE',
+                    'activated_at' => now(),
+                    'activated_by' => $request->user()->id,
+                ],
+            );
+        }
         $activity = CandidateActivity::create([
             'candidate_id' => $candidate->id,
             'user_id' => $request->user()->id,
@@ -1459,7 +1680,16 @@ class RecruitmentController extends Controller
             'metadata' => ['from' => $previousStatus?->value, 'to' => $nextStatus->value],
         ]);
         $candidate->load('lead');
-        $this->publishLeadEvent($candidate->lead, 'candidate.status_changed', ['candidate_id' => $candidate->id, 'activity' => $activity->only(['id', 'description', 'created_at']), 'notification' => ['title' => 'Estado de candidato actualizado', 'description' => "{$candidate->lead->full_name}: {$nextStatus->label()}."]]);
+        $this->publishLeadEvent($candidate->lead, 'candidate.status_changed', [
+            'candidate_id' => $candidate->id,
+            'activity' => $activity->only(['id', 'description', 'created_at']),
+            'activities' => collect([$interview?->getRelation('invitationActivity'), $activity])
+                ->filter()
+                ->map(fn (CandidateActivity $item) => $item->only(['id', 'description', 'created_at']))
+                ->values()
+                ->all(),
+            'notification' => ['title' => 'Estado de candidato actualizado', 'description' => "{$candidate->lead->full_name}: {$nextStatus->label()}."],
+        ]);
 
         if ($discardTransition) {
             $discardMail->send($candidate->lead, $previousStatus?->value ?: CandidateStatus::NEW->value);

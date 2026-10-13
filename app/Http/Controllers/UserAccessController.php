@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -55,6 +56,7 @@ class UserAccessController extends Controller
             'password' => $data['password'],
         ]);
         $user->syncRoles($data['roles']);
+        app(AuditLogger::class)->record('access.user_created', $user, ['role_slugs' => $data['roles']]);
 
         return to_route('admin.users.index')->with('success', 'Usuario creado y roles asignados.');
     }
@@ -78,6 +80,7 @@ class UserAccessController extends Controller
         }
         $user->save();
         $user->syncRoles($data['roles']);
+        app(AuditLogger::class)->record('access.user_updated', $user, ['role_slugs' => $data['roles']]);
 
         return to_route('admin.users.index')->with('success', 'Usuario actualizado correctamente.');
     }
@@ -87,6 +90,7 @@ class UserAccessController extends Controller
         abort_unless($this->canManageUser($request->user(), $user), 403);
         abort_if($request->user()->is($user), 422, 'No puedes eliminar tu propio usuario.');
 
+        app(AuditLogger::class)->record('access.user_deleted', $user, ['email' => $user->email]);
         $user->delete();
 
         return to_route('admin.users.index')->with('success', 'Usuario eliminado.');

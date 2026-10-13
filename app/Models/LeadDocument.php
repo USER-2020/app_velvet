@@ -10,7 +10,10 @@ class LeadDocument extends Model
 
     protected function casts(): array
     {
-        return ['size' => 'integer'];
+        return [
+            'size' => 'integer',
+            'metadata' => 'array',
+        ];
     }
 
     public function lead()

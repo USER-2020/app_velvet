@@ -1,6 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
-import { FiBell, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiCompass, FiDatabase, FiFileText, FiGrid, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
+import { FiBell, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiCompass, FiDatabase, FiFileText, FiGrid, FiHome, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
 import BrandMark from '@/Components/BrandMark';
 import { useAuthorization } from '@/lib/authorization';
 import toast from 'react-hot-toast';
@@ -20,7 +20,7 @@ const sections = [
     { label: 'Reclutamiento', items: [['Leads', '/admin/leads', FiUsers], ['Candidatos', '/admin/candidates', FiUserCheck], ['Entrevistas', '/admin/interviews', FiCalendar], ['Contratación', '/admin/contracting', FiBriefcase], ['Calendario', '/admin/calendar', FiCalendar], ['Pipeline', '/admin/recruitment', FiGrid]] },
     { label: 'Onboarding', items: [['Procesos', '/admin/processes', FiClipboard], ['Validaciones', '/admin/validations', FiFileText], ['Documentos', '/admin/documents', FiFileText]] },
     { label: 'Personas', items: [['Modelos', '/admin/candidates?type=MODEL', FiUsers], ['Monitores', '/admin/candidates?type=MONITOR', FiBriefcase]] },
-    { label: 'Operación', items: [['Rooms', '/admin/rooms', FiGrid]] },
+    { label: 'Operación', items: [['Operación diaria', '/admin/operations', FiClipboard], ['Sesiones', '/admin/productivity', FiCalendar], ['Plataformas', '/admin/platforms', FiDatabase], ['Administración', '/admin/administration', FiBriefcase], ['Rooms', '/admin/rooms', FiHome]] },
     { label: 'Configuración', items: [['Workflows', '/admin/workflows', FiSettings], ['Datos de prueba', '/admin/training-data', FiDatabase], ['Usuarios', '/admin/users', FiUsers], ['Roles y permisos', '/admin/access', FiSettings]] },
 ];
 
@@ -35,6 +35,7 @@ const portalSections = {
 
 function isActive(label, url) {
     if (label === 'Dashboard') return url === '/monitor/dashboard' || url === '/model/dashboard';
+    if (label === 'Mi perfil') return url === '/model/profile';
     if (label === 'Modelos') return url === '/monitor/models' || url.startsWith('/monitor/models/');
     const [path, query = ''] = url.split('?');
     if (label === 'Modelos') return path === '/admin/candidates' && query.includes('type=MODEL');
@@ -53,7 +54,11 @@ function isActive(label, url) {
     if (label === 'Workflows') return path === '/admin/workflows';
     if (label === 'Visitas guiadas') return path === '/admin/guided-tours';
     if (label === 'Datos de prueba') return path === '/admin/training-data';
-    if (label === 'Rooms') return path === '/admin/rooms' || path === '/monitor/rooms';
+    if (label === 'Rooms') return path === '/admin/rooms' || path === '/monitor/rooms' || path === '/model/rooms';
+    if (label === 'Operación diaria') return path === '/admin/operations';
+    if (label === 'Sesiones') return path === '/admin/productivity';
+    if (label === 'Plataformas') return path === '/admin/platforms';
+    if (label === 'Administración') return path === '/admin/administration';
     return false;
 }
 
@@ -70,6 +75,10 @@ const requiredPermissions = {
     Modelos: 'models.view_all',
     Monitores: 'models.view_all',
     Rooms: 'rooms.view',
+    'Operación diaria': 'shifts.view_team',
+    Sesiones: 'reports.operational.view',
+    Plataformas: 'platforms.view',
+    Administración: 'branches.manage',
     Workflows: 'settings.manage',
     'Visitas guiadas': 'super_admin',
     'Datos de prueba': 'super_admin',
@@ -88,13 +97,13 @@ function PortalSidebar({ onClose, url, user, can, roleSlug }) {
     if (roleSlug === 'monitor') return <GroupedPortalSidebar onClose={onClose} url={url} can={can} />;
     const href = roleSlug === 'monitor' ? '/monitor/dashboard' : '/model/dashboard';
     const permission = roleSlug === 'monitor' ? 'rooms.view_team' : 'rooms.view_own';
-    const items = [{ label: 'Dashboard', href, icon: FiGrid, permission }, ...(roleSlug === 'monitor' ? [{ label: 'Rooms', href: '/monitor/rooms', icon: FiGrid, permission: 'rooms.view_team' }, { label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] : [])];
+    const items = [{ label: 'Dashboard', href, icon: FiGrid, permission }, ...(roleSlug === 'model' ? [{ label: 'Rooms', href: '/model/rooms', icon: FiHome, permission: 'rooms.view_own' }, { label: 'Mi perfil', href: '/model/profile', icon: FiUser, permission: 'profile.view_own' }] : []), ...(roleSlug === 'monitor' ? [{ label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }, { label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] : [])];
     return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 overflow-y-auto"><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">Operación</p>{items.filter((item) => can(item.permission)).map(({ label, href: itemHref, icon: Icon }) => <Link key={label} href={itemHref} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isActive(label, url) ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{isActive(label, url) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>)}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
 }
 
 function GroupedPortalSidebar({ onClose, url, can }) {
     const groups = [
-        { label: 'Operación', items: [{ label: 'Dashboard', href: '/monitor/dashboard', icon: FiGrid, permission: 'rooms.view_team' }, { label: 'Rooms', href: '/monitor/rooms', icon: FiGrid, permission: 'rooms.view_team' }] },
+        { label: 'Operación', items: [{ label: 'Dashboard', href: '/monitor/dashboard', icon: FiGrid, permission: 'rooms.view_team' }, { label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }] },
         { label: 'Personas', items: [{ label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] },
     ];
     return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 space-y-6 overflow-y-auto">{groups.map((group) => { const items = group.items.filter((item) => can(item.permission)); if (!items.length) return null; return <div key={group.label}><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">{group.label}</p><div className="space-y-1">{items.map(({ label, href, icon: Icon }) => <Link key={label} href={href} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isActive(label, url) ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{isActive(label, url) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>)}</div></div>; })}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
@@ -102,7 +111,7 @@ function GroupedPortalSidebar({ onClose, url, can }) {
 
 function ProfileMenu({ user, open, onToggle, menuRef }) {
     const initials = user?.name?.split(' ').map((part) => part[0]).join('').slice(0, 2) || 'VA';
-    return <div ref={menuRef} className="relative hidden sm:block"><button type="button" onClick={onToggle} aria-haspopup="menu" aria-expanded={open} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-[#171522]"><span className="grid h-9 w-9 place-items-center rounded-full bg-[#3b2046] text-xs font-semibold text-[#f0c5fa]">{initials}</span><span className="hidden leading-tight lg:block"><span className="block text-xs font-medium text-white">{user?.name || 'Velvet Admin'}</span><span className="block text-[11px] text-[#9296a4]">{user?.roles?.[0]?.name || 'Sin rol'}</span></span><FiChevronDown size={15} className={`ml-1 text-[#a1a4af] transition ${open ? 'rotate-180' : ''}`} /></button>{open && <div role="menu" className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-xl border border-[#34303d] bg-[#15121d] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,.5)]"><div className="border-b border-[#292936] px-3 py-2.5"><p className="text-xs font-medium text-white">{user?.name || 'Velvet Admin'}</p><p className="mt-1 truncate text-[11px] text-[#858a99]">{user?.email}</p></div><Link href="/profile" role="menuitem" className="mt-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-xs text-[#d5d2dd] hover:bg-[#2b1735] hover:text-white"><FiUser size={15} />Visitar perfil</Link><Link href="/logout" method="post" as="button" role="menuitem" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-[#d5d2dd] hover:bg-[#2b1735] hover:text-white"><FiLogOut size={15} />Cerrar sesión</Link></div>}</div>;
+    return <div ref={menuRef} className="relative hidden sm:block"><button type="button" onClick={onToggle} aria-haspopup="menu" aria-expanded={open} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-[#171522]"><span className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-[#3b2046] text-xs font-semibold text-[#f0c5fa]">{user?.profile_photo_url ? <img src={user.profile_photo_url} alt="" className="h-full w-full object-cover" /> : initials}</span><span className="hidden leading-tight lg:block"><span className="block text-xs font-medium text-white">{user?.name || 'Velvet Admin'}</span><span className="block text-[11px] text-[#9296a4]">{user?.roles?.[0]?.name || 'Sin rol'}</span></span><FiChevronDown size={15} className={`ml-1 text-[#a1a4af] transition ${open ? 'rotate-180' : ''}`} /></button>{open && <div role="menu" className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-xl border border-[#34303d] bg-[#15121d] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,.5)]"><div className="border-b border-[#292936] px-3 py-2.5"><p className="text-xs font-medium text-white">{user?.name || 'Velvet Admin'}</p><p className="mt-1 truncate text-[11px] text-[#858a99]">{user?.email}</p></div><Link href="/profile" role="menuitem" className="mt-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-xs text-[#d5d2dd] hover:bg-[#2b1735] hover:text-white"><FiUser size={15} />Visitar perfil</Link><Link href="/logout" method="post" as="button" role="menuitem" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-[#d5d2dd] hover:bg-[#2b1735] hover:text-white"><FiLogOut size={15} />Cerrar sesión</Link></div>}</div>;
 }
 
 function DashboardSkeleton() {
@@ -149,6 +158,65 @@ export default function Layout({ children }) {
     }, []);
 
     useEffect(() => setCounters(page.props.realtime?.counters || {}), [page.props.realtime]);
+
+    useEffect(() => {
+        const sidebars = Array.from(document.querySelectorAll('nav.sidebar-scroll'));
+        const scrollKey = (index) => `velvet-sidebar-scroll:${user?.id ?? 'guest'}:${index}`;
+
+        const persistScroll = (sidebar, index) => {
+            try {
+                window.sessionStorage.setItem(scrollKey(index), String(sidebar.scrollTop));
+            } catch {
+                // La navegación sigue funcionando si el navegador bloquea sessionStorage.
+            }
+        };
+
+        const revealActiveItem = (sidebar, index) => {
+            try {
+                const savedPosition = Number(window.sessionStorage.getItem(scrollKey(index)));
+
+                if (Number.isFinite(savedPosition)) {
+                    sidebar.scrollTop = savedPosition;
+                }
+            } catch {
+                // Se conserva la posición inicial cuando el almacenamiento no está disponible.
+            }
+
+            const activeItem = Array.from(sidebar.querySelectorAll('a')).find((link) =>
+                link.className.includes('bg-[#55166e]'),
+            );
+
+            if (!activeItem) return;
+
+            const sidebarBounds = sidebar.getBoundingClientRect();
+            const activeBounds = activeItem.getBoundingClientRect();
+            const safeArea = 12;
+
+            if (activeBounds.top < sidebarBounds.top + safeArea) {
+                sidebar.scrollTop += activeBounds.top - sidebarBounds.top - safeArea;
+            } else if (activeBounds.bottom > sidebarBounds.bottom - safeArea) {
+                sidebar.scrollTop += activeBounds.bottom - sidebarBounds.bottom + safeArea;
+            }
+
+            persistScroll(sidebar, index);
+        };
+
+        const animationFrame = window.requestAnimationFrame(() => {
+            sidebars.forEach(revealActiveItem);
+        });
+        const listeners = sidebars.map((sidebar, index) => {
+            const onScroll = () => persistScroll(sidebar, index);
+            sidebar.addEventListener('scroll', onScroll, { passive: true });
+
+            return { sidebar, onScroll };
+        });
+
+        return () => {
+            window.cancelAnimationFrame(animationFrame);
+            listeners.forEach(({ sidebar, onScroll }) => sidebar.removeEventListener('scroll', onScroll));
+        };
+    }, [page.url, user?.id]);
+
     useEffect(() => {
         const items = page.props.realtime?.notifications || [];
         setNotificationItems(items);
@@ -215,15 +283,32 @@ export default function Layout({ children }) {
         const panel = document.createElement('section');
         panel.dataset.notificationPanel = 'true';
         panel.hidden = true;
-        panel.className = 'fixed right-5 top-[58px] z-[70] w-[360px] overflow-hidden rounded-xl border border-[#34303d] bg-[#15121d] shadow-[0_18px_45px_rgba(0,0,0,.55)]';
+        panel.className = 'notification-dropdown fixed z-[70] w-[360px] overflow-visible rounded-xl border border-[#34303d] bg-[#15121d] shadow-[0_18px_45px_rgba(0,0,0,.55)]';
         document.body.appendChild(panel);
-        const toggle = (event) => { event.stopPropagation(); panel.hidden = !panel.hidden; };
+        const position = () => {
+            const bellRect = bell.getBoundingClientRect();
+            const panelWidth = 360;
+            const viewportPadding = 8;
+            const bellCenter = bellRect.left + (bellRect.width / 2);
+            const left = Math.max(viewportPadding, Math.min(bellCenter - (panelWidth / 2), window.innerWidth - panelWidth - viewportPadding));
+            const arrowLeft = Math.max(18, Math.min(panelWidth - 18, bellCenter - left));
+            panel.style.left = `${left}px`;
+            panel.style.top = `${bellRect.bottom + 10}px`;
+            panel.style.setProperty('--notification-origin-x', `${arrowLeft}px`);
+        };
+        const toggle = (event) => {
+            event.stopPropagation();
+            if (panel.hidden) position();
+            panel.hidden = !panel.hidden;
+        };
         const close = (event) => { if (!panel.contains(event.target) && event.target !== bell) panel.hidden = true; };
         bell.addEventListener('click', toggle);
         document.addEventListener('mousedown', close);
+        window.addEventListener('resize', position);
         return () => {
             bell.removeEventListener('click', toggle);
             document.removeEventListener('mousedown', close);
+            window.removeEventListener('resize', position);
             panel.remove();
         };
     }, []);

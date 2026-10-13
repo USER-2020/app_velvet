@@ -1,12 +1,16 @@
 <?php
 
-use App\Http\Middleware\EnsurePermission;
 use App\Http\Middleware\EnsureActiveOperationalProfile;
+use App\Http\Middleware\EnsureActiveUser;
+use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
+use Spatie\Permission\Middleware\PermissionMiddleware;
+use Spatie\Permission\Middleware\RoleMiddleware;
+use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -17,15 +21,19 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Ngrok termina la conexión HTTPS y reenvía la petición al servidor local.
         // Confiar en sus encabezados permite que Laravel genere URLs HTTPS.
-        $middleware->trustProxies(at: '*');
+        $middleware->trustProxies(at: env('TRUSTED_PROXIES', '127.0.0.1'));
 
         $middleware->web(append: [
+            EnsureActiveUser::class,
+            AddSecurityHeaders::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
 
         $middleware->alias([
-            'permission' => EnsurePermission::class,
+            'permission' => PermissionMiddleware::class,
+            'role' => RoleMiddleware::class,
+            'role_or_permission' => RoleOrPermissionMiddleware::class,
             'active.profile' => EnsureActiveOperationalProfile::class,
         ]);
 

@@ -31,7 +31,7 @@ class AccessControlTest extends TestCase
         $user = User::factory()->create()->assignRole('super_admin');
         $permission = Permission::where('slug', 'leads.view')->firstOrFail();
 
-        $this->actingAs($user)->post('/admin/access', [
+        $this->actingAs($user)->withSession(['auth.password_confirmed_at' => time()])->post('/admin/access', [
             'name' => 'Coordinador',
             'slug' => 'coordinador',
             'description' => 'Coordina la operación.',
@@ -39,7 +39,7 @@ class AccessControlTest extends TestCase
         ])->assertRedirect('/admin/access');
 
         $this->assertDatabaseHas('roles', ['slug' => 'coordinador']);
-        $this->assertDatabaseHas('role_permission', ['role_id' => Role::where('slug', 'coordinador')->value('id'), 'permission_id' => $permission->id]);
+        $this->assertDatabaseHas('role_has_permissions', ['role_id' => Role::where('slug', 'coordinador')->value('id'), 'permission_id' => $permission->id]);
     }
 
     public function test_user_can_receive_a_role(): void
@@ -47,7 +47,7 @@ class AccessControlTest extends TestCase
         $admin = User::factory()->create()->assignRole('super_admin');
         $target = User::factory()->create();
 
-        $this->actingAs($admin)->put("/admin/users/{$target->id}", ['roles' => ['recruiter']])->assertRedirect('/admin/users');
+        $this->actingAs($admin)->withSession(['auth.password_confirmed_at' => time()])->put("/admin/users/{$target->id}", ['roles' => ['recruiter']])->assertRedirect('/admin/users');
 
         $this->assertTrue($target->fresh()->hasRole('recruiter'));
     }

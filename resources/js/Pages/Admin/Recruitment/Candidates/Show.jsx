@@ -1,13 +1,16 @@
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FaWhatsapp } from 'react-icons/fa6';
 import { FiArrowLeft, FiArrowRight, FiCheckCircle, FiClock, FiEdit3, FiFileText, FiMail, FiShield, FiTrash2, FiUser, FiX, FiCalendar } from 'react-icons/fi';
 import { formatFriendlyDate, formatFriendlyDateTime } from '../../../../lib/date';
 import { candidateStatusLabels, candidateTypeLabels } from '../../../../lib/recruitmentLabels';
 import AdminApplicationEditModal from '../../../../Components/AdminApplicationEditModal';
 import InterviewNotesUpload from '../../../../Components/InterviewNotesUpload';
+import ContractingDocumentsUpload from '../../../../Components/ContractingDocumentsUpload';
+import OperationalProfilePanel from '../../../../Components/OperationalProfilePanel';
 import Layout from '../Layout';
 import { subscribeToRealtime } from '../../../../lib/ably';
+import { useRealtimeFallback } from '../../../../lib/useRealtimeFallback';
 
 const statusOrder = ['NEW', 'CONTACTED', 'PREQUALIFIED', 'INTERVIEW', 'EVALUATION', 'ADMITTED', 'WAITING', 'CONTRACTING', 'ONBOARDING', 'INDUCTION', 'READY_TO_ACTIVATE', 'ACTIVE', 'WITHDRAWN'];
 const statusOptions = statusOrder.map((value) => [value, candidateStatusLabels[value]]);
@@ -54,6 +57,61 @@ function AccessStatusModal({ open, active, form, name, onClose, onSubmit }) {
     return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"><form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-[#49334f] bg-[#151522] p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] uppercase tracking-[.2em] text-[#d56bea]">Estado del acceso</p><h2 className="mt-2 text-xl font-medium text-white">¿{active ? 'Desactivar' : 'Reactivar'} perfil?</h2><p className="mt-2 text-xs leading-5 text-[#969baa]">El acceso de {name} se va a {nextLabel}. No se eliminarán sus datos ni su historial.</p></div><button type="button" onClick={onClose} className="text-[#9297a7] hover:text-white" aria-label="Cerrar"><FiX /></button></div>{form.errors.access && <p className="mt-4 rounded-md border border-[#7d3144] bg-[#321622] px-3 py-2 text-xs text-[#ffb1bd]">{form.errors.access}</p>}<div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-lg border border-[#343044] px-4 py-2 text-xs text-[#c9c2cf]">Cancelar</button><button type="submit" disabled={form.processing} className={active ? 'rounded-lg bg-[#8e394c] px-4 py-2 text-xs font-medium text-white hover:bg-[#aa485d]' : 'velvet-button'}>{form.processing ? 'Guardando…' : active ? 'Desactivar perfil' : 'Reactivar perfil'}</button></div></form></div>;
 }
 
+function ContractingWaitingRecommendation({ candidateId, documents = [], contracting = {} }) {
+    const documentItems = Array.isArray(documents) ? documents : (documents.items || []);
+    const contractInvitations = Array.isArray(documents) ? [] : (documents.contract_invitations || []);
+    const contractDocuments = documentItems.filter((document) => document.type === 'contract_document');
+    const received = new Set(contractDocuments.map((document) => document.metadata?.requirement_key || document.id)).size;
+    const rejected = contractDocuments.filter((document) => document.status === 'REJECTED').length;
+    const pending = contractDocuments.filter((document) => document.status === 'PENDING').length;
+    const verified = contractDocuments.filter((document) => document.status === 'VERIFIED').length;
+    const invitationSent = contractInvitations.some((invitation) => invitation.status === 'INVITED' && new Date(invitation.invitation_expires_at) > new Date());
+    const availableSlots = Number(contracting.available_slots || 0);
+    const requiredDocuments = 3;
+    const allRequiredReceived = received >= requiredDocuments && rejected === 0;
+    const allRequiredVerified = allRequiredReceived && verified >= requiredDocuments;
+
+    const content = invitationSent
+        ? { title: 'Agenda de contratación enviada', description: 'Los documentos fueron aprobados y la persona recibió por correo el enlace para elegir una franja disponible.', label: 'Abrir contratación', href: '/admin/contracting', tone: 'green' }
+        : allRequiredVerified
+        ? availableSlots > 0
+            ? { title: 'Enviar agenda de contratación', description: `Los documentos fueron aprobados y hay ${availableSlots} franja${availableSlots === 1 ? '' : 's'} disponible${availableSlots === 1 ? '' : 's'}. Envía ahora el enlace para que el candidato elija su horario.`, label: 'Enviar franjas al correo', href: `/admin/candidates/${candidateId}/contracting-invitation`, method: 'post', tone: 'green' }
+            : { title: 'Crear franjas de contratación', description: 'Los documentos fueron aprobados, pero todavía no hay horarios futuros. Crea las franjas para poder enviar automáticamente la agenda al candidato.', label: 'Crear horarios', href: '/admin/contracting', tone: 'amber' }
+        : rejected > 0
+            ? { title: 'Solicitar corrección de documentos', description: 'Hay documentos rechazados. Revisa la observación y solicita nuevamente los archivos faltantes o corregidos.', label: 'Revisar documentos', href: '/admin/documents', tone: 'red' }
+            : pending > 0 || allRequiredReceived
+                ? { title: 'Verificar documentos recibidos', description: `${received} de ${requiredDocuments} documentos requeridos están asociados. Revisa y aprueba cada archivo para habilitar la contratación.`, label: 'Revisar documentos', href: '/admin/documents', tone: 'blue' }
+                : { title: 'Esperar documentos de contratación', description: 'La solicitud ya fue enviada. El siguiente paso se habilitará cuando la persona cargue sus documentos.', label: 'Abrir contratación', href: '/admin/contracting', tone: 'amber' };
+
+    const tone = {
+        amber: ['border-[#b8863b]', 'from-[#342515]', 'text-[#ffe1a1]', 'bg-[#6b4e22]', 'bg-[#a8792f]', 'hover:bg-[#c18e3c]'],
+        blue: ['border-[#2c6d95]', 'from-[#102e42]', 'text-[#9edcff]', 'bg-[#1b5275]', 'bg-[#1b5275]', 'hover:bg-[#2776a7]'],
+        green: ['border-[#2d8669]', 'from-[#12372e]', 'text-[#9af2cb]', 'bg-[#1e5b4a]', 'bg-[#2d8669]', 'hover:bg-[#3ba47f]'],
+        red: ['border-[#7d3144]', 'from-[#321622]', 'text-[#ffb1bd]', 'bg-[#6b263b]', 'bg-[#8e394c]', 'hover:bg-[#aa485d]'],
+    }[content.tone];
+
+    const action = content.method === 'post'
+        ? <button type="button" onClick={() => router.post(content.href, {}, { preserveScroll: true })} className={`mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg ${tone[4]} px-4 py-2.5 text-xs font-medium text-white transition ${tone[5]}`}>{content.label} <FiArrowRight size={15} /></button>
+        : <Link href={content.href} className={`mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg ${tone[4]} px-4 py-2.5 text-xs font-medium text-white transition ${tone[5]}`}>{content.label} <FiArrowRight size={15} /></Link>;
+
+    return <div className={`rounded-xl border ${tone[0]} bg-gradient-to-r ${tone[1]} to-[#151522] p-5 shadow-[0_12px_35px_rgba(116,31,145,.12)] sm:p-6`}>
+        <div className="flex items-start gap-3"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${tone[3]} ${tone[2]}`}><FiFileText size={17} /></span><div><p className={`text-[10px] font-semibold uppercase tracking-[.18em] ${tone[2]}`}>Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">{content.title}</h2><p className="mt-1 text-xs leading-5 text-[#bdb3c5]">{content.description}</p></div></div>
+        {action}
+        <p className={`mt-4 flex items-center gap-2 text-xs ${tone[2]}`}><FiCheckCircle /> {received ? `${received} archivo${received === 1 ? '' : 's'} asociado${received === 1 ? '' : 's'} a contratación` : 'Solicitud de documentos enviada'}</p>
+    </div>;
+}
+
+function ContractingAppointmentCard({ candidate }) {
+    const appointment = candidate.contract_appointments?.find((item) => item.status === 'SCHEDULED');
+    if (!appointment) return null;
+
+    return <div className="rounded-xl border border-[#2c6d95] bg-gradient-to-r from-[#102e42] to-[#151522] p-5 shadow-[0_12px_35px_rgba(44,109,149,.12)] sm:p-6">
+        <div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#1b5275] text-[#9edcff]"><FiCalendar size={17} /></span><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#9edcff]">Contratación en curso</p><h2 className="mt-3 text-base font-medium text-white">Firma de contrato programada</h2><p className="mt-1 text-xs leading-5 text-[#b5d9ed]">La persona está en En contratación y tiene una fecha acordada para firmar.</p></div></div>
+        <div className="mt-5 rounded-lg border border-[#2c6d95]/60 bg-[#0d2433]/70 px-4 py-3"><p className="text-[10px] uppercase tracking-[.16em] text-[#7fbbd9]">Fecha acordada</p><p className="mt-2 text-sm font-medium capitalize text-white">{appointment.slot?.starts_at ? formatFriendlyDateTime(appointment.slot.starts_at) : 'Fecha pendiente'}</p></div>
+        <Link href="/admin/contracting#reschedule" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[#4a89ad] px-4 py-2.5 text-xs font-medium text-[#c2e7f8] transition hover:bg-[#163b50]">Reprogramar cita <FiArrowRight size={15} /></Link>
+    </div>;
+}
+
 const processStageDescriptions = {
     NEW: 'Aplicaci\u00f3n recibida y pendiente de primer contacto.',
     CONTACTED: 'El equipo ya contact\u00f3 a la persona y confirm\u00f3 su inter\u00e9s.',
@@ -97,13 +155,14 @@ function ProcessStatusCarousel({ currentStatus, onChange }) {
     </div>;
 }
 
-export default function Show({ candidate }) {
+export default function Show({ candidate, contracting = {}, operational = {} }) {
     const sendForm = useForm();
     const discardForm = useForm({ reason: '' });
     const [editing, setEditing] = useState(false);
     const [discarding, setDiscarding] = useState(false);
     const [activating, setActivating] = useState(false);
     const [accessStatusOpen, setAccessStatusOpen] = useState(false);
+    const [realtimeUnavailable, setRealtimeUnavailable] = useState(!import.meta.env.VITE_ABLY_ENABLED);
     const activationForm = useForm({ password: '', password_confirmation: '' });
     const accessStatusForm = useForm({ active: false });
     const contractingForm = useForm();
@@ -123,13 +182,18 @@ export default function Show({ candidate }) {
     const inductionRecommendation = candidate.status === 'INDUCTION';
     const readyToActivateRecommendation = candidate.status === 'READY_TO_ACTIVATE';
     const interviewRecommendation = candidate.status === 'PREQUALIFIED';
+    const waitingRecommendation = candidate.status === 'WAITING';
 
+    const refresh = useCallback(() => router.reload({ only: ['candidate', 'contracting', 'realtime'], preserveScroll: true, preserveState: true }), []);
     useEffect(() => subscribeToRealtime((event, eventName) => {
-        if (Number(event.candidate_id) !== Number(candidate.id)) return;
-        if (eventName === 'candidate.prequalification_completed' || eventName === 'candidate.status_changed') {
-            router.reload({ only: ['candidate', 'realtime'], preserveScroll: true, preserveState: true });
+        if (eventName === 'contract.slots_generated') {
+            refresh();
+            return;
         }
-    }), [candidate.id]);
+        if (Number(event.candidate_id) !== Number(candidate.id)) return;
+        if (['candidate.prequalification_sent', 'candidate.prequalification_completed', 'candidate.identity_updated', 'candidate.status_changed', 'candidate.updated', 'candidate.contracting_invited'].includes(eventName)) refresh();
+    }, null, (available) => setRealtimeUnavailable(!available)), [candidate.id, refresh]);
+    useRealtimeFallback(refresh, realtimeUnavailable);
 
     const discard = (event) => {
         event.preventDefault();
@@ -178,7 +242,10 @@ export default function Show({ candidate }) {
                         <div className="mt-8 border-t border-[#292d39] pt-7"><ProcessStatusCarousel currentStatus={candidate.status} onChange={(status) => changeStatus({ target: { value: status } })} />{candidate.discard_reason && <p className="mt-4 rounded-lg border border-[#673344] bg-[#321622]/50 px-3 py-2 text-xs leading-5 text-[#ffb1bd]"><strong>Motivo del descarte:</strong> {candidate.discard_reason}</p>}</div>
                     </section>
                     <aside data-tour="candidate-actions" className="min-w-0 rounded-xl border border-[#292d39] bg-[#11131c]/90 p-6 shadow-[0_18px_55px_rgba(0,0,0,.16)] backdrop-blur-xl sm:p-7">
-                        <div className={`space-y-8 ${interviewRecommendation || admissionRecommendation || activationRecommendation || contractingRecommendation || inductionRecommendation || readyToActivateRecommendation ? 'admission-active' : ''}`}>
+                        <div className={`space-y-8 ${interviewRecommendation || admissionRecommendation || activationRecommendation || contractingRecommendation || inductionRecommendation || readyToActivateRecommendation || waitingRecommendation || candidate.status === 'CONTRACTING' ? 'admission-active' : ''} ${waitingRecommendation ? 'waiting-recommendation' : ''}`}>
+                            {waitingRecommendation && <ContractingWaitingRecommendation candidateId={candidate.id} documents={{ items: candidate.lead.documents || [], contract_invitations: candidate.contract_invitations || [] }} contracting={contracting} />}
+                            {candidate.status === 'CONTRACTING' && <ContractingAppointmentCard candidate={candidate} />}
+                            {candidate.status === 'CONTRACTING' && <ContractingDocumentsUpload candidateId={candidate.id} status={candidate.status} documents={candidate.lead.documents || []} />}
                             {interviewRecommendation && <div className="rounded-xl border border-[#2c6d95] bg-gradient-to-r from-[#102e42] to-[#151522] p-5 shadow-[0_12px_35px_rgba(44,109,149,.12)] sm:p-6"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#1b5275] text-[#9edcff]"><FiCalendar size={17} /></span><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#9edcff]">Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">Programar entrevista</h2><p className="mt-1 text-xs leading-5 text-[#b5d9ed]">La precalificación está completa. Genera horarios disponibles y envía la invitación para que la candidata elija su cita.</p></div></div><Link href="/admin/interviews" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1b5275] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#2776a7]">Ir a entrevistas <FiArrowRight size={15} /></Link></div>}
                             {inductionRecommendation && <div className="rounded-xl border border-[#b8863b] bg-gradient-to-r from-[#342515] to-[#151522] p-5 shadow-[0_12px_35px_rgba(184,134,59,.12)] sm:p-6"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b4e22] text-[#ffe1a1]">→</span><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#ffe1a1]">Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">Confirmar inducción</h2><p className="mt-1 text-xs leading-5 text-[#dfc99e]">Verifica que la inducción terminó para preparar el perfil para su activación.</p></div></div><button type="button" onClick={() => changeStatus({ target: { value: 'READY_TO_ACTIVATE' } })} className="mt-5 w-full rounded-lg bg-[#a8792f] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#c18e3c]">Confirmar inducción completada →</button></div>}
                             {readyToActivateRecommendation && <div className="rounded-xl border border-[#2d8669] bg-gradient-to-r from-[#12372e] to-[#151522] p-5 shadow-[0_12px_35px_rgba(45,134,105,.12)] sm:p-6"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#1e5b4a] text-[#9af2cb]">✓</span><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#9af2cb]">Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">Activar perfil</h2><p className="mt-1 text-xs leading-5 text-[#b9d8cb]">La inducción fue completada y el perfil ya está listo para activarse.</p></div></div><button type="button" onClick={() => changeStatus({ target: { value: 'ACTIVE' } })} className="mt-5 w-full rounded-lg bg-[#2d8669] px-4 py-2.5 text-xs font-medium text-white transition hover:bg-[#3ba47f]">Activar perfil →</button></div>}
@@ -192,6 +259,7 @@ export default function Show({ candidate }) {
                         </div>
                     </aside>
                 </div>
+                <OperationalProfilePanel candidate={candidate} operational={operational} />
                 <section className="mt-6 rounded-xl border border-[#292d39] bg-[#11131c]/90 p-6 shadow-[0_18px_55px_rgba(0,0,0,.16)] sm:p-7"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-[#3c1749] text-[#e2a0f1]"><FiClock size={16} /></span><div><p className="text-sm font-medium text-white">Historial del proceso</p><p className="mt-1 text-xs text-[#7f8495]">Actividad registrada</p></div></div><div className="mt-6 grid gap-5 md:grid-cols-2">{candidate.activities?.length ? candidate.activities.map((item) => <div key={item.id} className="relative border-l border-[#8b28ad] pl-5"><span className="absolute -left-[5px] top-0 h-2.5 w-2.5 rounded-full bg-[#c22be8] shadow-[0_0_12px_rgba(194,43,232,.65)]" /><p className="text-sm text-[#e6e1ea]">{item.description}</p><p className="mt-1 text-xs text-[#7f8495]">{formatFriendlyDateTime(item.created_at)}</p></div>) : <p className="text-sm text-[#7f8495]">Aún no hay actividad registrada.</p>}</div></section>
             </div>
             {discarding && <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"><form onSubmit={discard} className="w-full max-w-md rounded-2xl border border-[#49334f] bg-[#151522] p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-medium text-white">Descartar candidato</h2><p className="mt-2 text-xs leading-5 text-[#969baa]">Indica por qué no continuará en el proceso. Este motivo quedará en el historial.</p></div><button type="button" onClick={() => setDiscarding(false)} className="text-[#9297a7] hover:text-white" aria-label="Cerrar"><FiX /></button></div><textarea required minLength="5" value={discardForm.data.reason} onChange={(event) => discardForm.setData('reason', event.target.value)} className="velvet-input mt-5" rows="4" placeholder="Ej. No aprobó la verificación de identidad…" />{discardForm.errors.reason && <p className="mt-2 text-xs text-[#ffb1bd]">{discardForm.errors.reason}</p>}<div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setDiscarding(false)} className="rounded-lg border border-[#343044] px-4 py-2 text-xs text-[#c9c2cf]">Cancelar</button><button disabled={discardForm.processing} className="rounded-lg bg-[#7d3144] px-4 py-2 text-xs font-medium text-white">{discardForm.processing ? 'Descartando…' : 'Confirmar descarte'}</button></div></form></div>}

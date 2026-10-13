@@ -49,13 +49,17 @@ class InterviewInvitationService
                 $candidate->update(['status' => CandidateStatus::INTERVIEW]);
             }
 
-            CandidateActivity::create([
+            $invitationActivity = CandidateActivity::create([
                 'candidate_id' => $candidate->id,
                 'user_id' => $user->id,
                 'type' => 'interview_invited',
                 'description' => 'Se enviaron horarios disponibles para agendar la entrevista.',
                 'metadata' => ['expires_at' => $expiresAt->toIso8601String()],
             ]);
+
+            // El controlador publica esta actividad junto al cambio de etapa
+            // para que los historiales abiertos la reciban en tiempo real.
+            $interview->setRelation('invitationActivity', $invitationActivity);
 
             return $interview;
         });

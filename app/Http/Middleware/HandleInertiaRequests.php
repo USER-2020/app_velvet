@@ -49,6 +49,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'auth' => [
                 'user' => $user ? array_merge($user->toArray(), [
+                    'profile_photo_url' => $user->profile_photo_path ? route('profile.photo', ['v' => $user->updated_at?->timestamp]) : null,
                     'candidate_id' => $candidate?->id,
                     'candidate_status' => $candidate?->status?->value,
                     'candidate_access_active' => (bool) $user->is_active,

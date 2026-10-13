@@ -8,11 +8,15 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements MustVerifyEmail
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, HasRoles {
+        hasPermissionTo as protected spatieHasPermissionTo;
+        hasRole as protected spatieHasRole;
+    }
 
     /**
      * The attributes that are mass assignable.
@@ -34,6 +38,8 @@ class User extends Authenticatable implements MustVerifyEmail
     protected $hidden = [
         'password',
         'remember_token',
+        'profile_photo_path',
+        'profile_photo_source',
     ];
 
     /**
@@ -50,11 +56,6 @@ class User extends Authenticatable implements MustVerifyEmail
         ];
     }
 
-    public function roles()
-    {
-        return $this->belongsToMany(Role::class, 'user_role');
-    }
-
     public function notifications()
     {
         return $this->hasMany(Notification::class);
@@ -65,35 +66,41 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasOne(Candidate::class);
     }
 
-    public function hasRole(string|Role|array $roles): bool
+    /** Existing application code addresses roles by slug; Spatie stores role checks by name. */
+    public function hasRole($roles, ?string $guard = null): bool
     {
-        $slugs = collect(is_array($roles) ? $roles : [$roles])->map(fn ($role) => $role instanceof Role ? $role->slug : $role);
+        if (is_string($roles)) {
+            return $this->roles()
+                ->where('slug', $roles)
+                ->when($guard, fn ($query) => $query->where('guard_name', $guard))
+                ->exists();
+        }
 
-        return $this->roles()->whereIn('slug', $slugs)->exists();
+        if (is_array($roles)) {
+            foreach ($roles as $role) {
+                if ($this->hasRole($role, $guard)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return $this->spatieHasRole($roles, $guard);
     }
 
-    public function hasPermissionTo(string $permission): bool
+    public function hasPermissionTo($permission, $guardName = null): bool
     {
         if ($this->hasRole('super_admin')) {
             return true;
         }
 
-        return $this->roles()->whereHas('permissions', fn ($query) => $query->where('slug', $permission))->exists();
-    }
+        // Gate also asks about policy abilities (for example, viewAssignedModel)
+        // that are not persisted Spatie permissions. Let the policy handle them.
+        if (is_string($permission) && ! Permission::query()->where('slug', $permission)->where('guard_name', $guardName ?: $this->getDefaultGuardName())->exists()) {
+            return false;
+        }
 
-    public function assignRole(string|Role $role): static
-    {
-        $role = $role instanceof Role ? $role : Role::where('slug', $role)->firstOrFail();
-        $this->roles()->syncWithoutDetaching($role->id);
-
-        return $this;
-    }
-
-    public function syncRoles(array $roles): static
-    {
-        $roleIds = Role::query()->whereIn('slug', $roles)->pluck('id');
-        $this->roles()->sync($roleIds);
-
-        return $this;
+        return $this->spatieHasPermissionTo($permission, $guardName);
     }
 }

@@ -24,15 +24,23 @@ class TourProgressController extends Controller
         'documents',
         'calendar',
         'rooms',
+        'operations',
+        'platforms',
+        'productivity',
+        'administration',
         'workflows',
         'training-data',
         'guided-tours',
         'users',
         'roles',
         'notifications',
+        'profile',
         'monitor-portal',
+        'monitor-rooms',
         'monitor-models',
         'model-portal',
+        'model-rooms',
+        'model-profile',
     ];
 
     public function update(Request $request, string $tourKey)

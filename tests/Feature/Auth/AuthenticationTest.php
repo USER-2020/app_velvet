@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -50,5 +51,28 @@ class AuthenticationTest extends TestCase
 
         $this->assertGuest();
         $response->assertRedirect('/');
+    }
+
+    public function test_a_new_user_is_redirected_to_its_role_dashboard_after_logout(): void
+    {
+        $firstUser = User::factory()->create();
+        $model = User::factory()->create();
+        Role::query()->create([
+            'name' => 'Modelo',
+            'slug' => 'model',
+            'description' => 'Acceso al portal de modelo.',
+            'guard_name' => 'web',
+        ]);
+        $model->assignRole('model');
+
+        $this->actingAs($firstUser)->post('/logout')->assertRedirect('/');
+
+        $response = $this->post('/login', [
+            'email' => $model->email,
+            'password' => 'password',
+        ]);
+
+        $this->assertAuthenticatedAs($model);
+        $response->assertRedirect(route('model.dashboard', absolute: false));
     }
 }

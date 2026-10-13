@@ -28,9 +28,22 @@ export default function ProductTour() {
 
         if (automatic) autoStartedTours.current.add(key);
 
+        const isVisible = (element) => {
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+        };
+
+        const isLoadingOverlayVisible = () => Array.from(document.querySelectorAll(
+            '.apply-intro-overlay, .dashboard-route-skeleton, .admin-skeleton[aria-busy="true"]',
+        )).some(isVisible);
+
+        const hasAllTargets = () => definition.steps
+            .filter((step) => !step.optional)
+            .every((step) => document.querySelector(step.element));
+
         const openTour = () => {
             window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-                if (activeTour.current) return;
+                if (activeTour.current || isLoadingOverlayVisible() || !hasAllTargets()) return;
 
                 const steps = definition.steps
                     .filter((step) => document.querySelector(step.element))
@@ -76,21 +89,33 @@ export default function ProductTour() {
             }));
         };
 
-        const hasAllTargets = () => definition.steps.filter((step) => !step.optional).every((step) => document.querySelector(step.element));
-
-        if (hasAllTargets()) {
+        if (hasAllTargets() && !isLoadingOverlayVisible()) {
             openTour();
             return;
         }
 
-        const observer = new MutationObserver(() => {
-            if (!hasAllTargets()) return;
-            observer.disconnect();
+        let observer;
+        const cleanup = () => {
+            observer?.disconnect();
+            window.removeEventListener('velvet-intro-overlay-complete', tryOpen);
             pendingObserver.current = null;
+        };
+        const tryOpen = () => {
+            if (!hasAllTargets() || isLoadingOverlayVisible()) return;
+            cleanup();
             openTour();
+        };
+
+        observer = new MutationObserver(tryOpen);
+        pendingObserver.current = { disconnect: cleanup };
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['aria-busy', 'class', 'style'],
         });
-        pendingObserver.current = observer;
-        observer.observe(document.body, { childList: true, subtree: true });
+        window.addEventListener('velvet-intro-overlay-complete', tryOpen);
+        tryOpen();
     }, [can, markTour]);
 
     useEffect(() => () => pendingObserver.current?.disconnect(), []);

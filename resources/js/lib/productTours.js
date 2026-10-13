@@ -1,4 +1,4 @@
-export const TOUR_VERSION = 2;
+export const TOUR_VERSION = 4;
 
 const hasPermission = (permission) => (can) => !permission || can(permission);
 
@@ -36,6 +36,7 @@ export const productTours = {
             { element: 'main .mt-4.flex', optional: true, popover: { title: 'Siguiente paso recomendado', description: 'Sigue esta recomendación para contactar, calificar, convertir o avanzar al candidato según el estado actual.' } },
             { element: 'main section', popover: { title: 'Información para decidir', description: 'Revisa los datos de la aplicación antes de actualizar el estado o convertir el lead en candidato.' } },
             { element: 'main aside', popover: { title: 'Historial y contacto', description: 'Consulta la actividad registrada y usa correo o WhatsApp para continuar el seguimiento.' } },
+            { element: '[data-tour="contract-documents-upload"]', optional: true, popover: { title: 'Documentos de contratación', description: 'Cuando la persona está en contratación, carga aquí el contrato firmado y los soportes finales para mantener completo su expediente.' } },
         ],
     },
     candidates: {
@@ -52,6 +53,8 @@ export const productTours = {
             { element: '[data-tour="candidate-profile"]', popover: { title: 'Información de la persona', description: 'Revisa los datos enviados durante la aplicación antes de realizar cambios en el proceso.' } },
             { element: '[data-tour="candidate-process"]', popover: { title: 'Flujo del candidato', description: 'Selecciona una etapa para actualizar el avance. El cambio se guarda y se comparte en tiempo real con el equipo.' } },
             { element: '[data-tour="candidate-actions"]', popover: { title: 'Acciones recomendadas', description: 'Esta columna muestra las tareas disponibles según la etapa: formulario, verificación, contratación, inducción o activación.' } },
+            { element: '[data-tour="contract-documents-upload"]', optional: true, popover: { title: 'Documentos de contratación', description: 'Asocia el contrato firmado y los soportes finales directamente al expediente del candidato.' } },
+            { element: '[data-tour="operational-profile"]', optional: true, popover: { title: 'Expediente operativo', description: 'Consulta el onboarding y las capacitaciones. Para modelos activas, gestiona la asignacion o reasignacion de monitor y conserva su historial.' } },
         ],
     },
     interviews: {
@@ -104,6 +107,38 @@ export const productTours = {
             { element: 'main', popover: { title: 'Operación de salas', description: 'Las acciones mostradas dependen de si puedes crear, administrar o solo consultar rooms.' } },
         ],
     },
+    operations: {
+        available: hasPermission('shifts.view_team'),
+        steps: [
+            { element: 'main h1', popover: { title: 'Operacion diaria', description: 'Programa turnos sin confundir la planificacion con la asistencia real.' } },
+            { element: '[data-tour="operation-shifts"]', popover: { title: 'Turnos y asistencia', description: 'Cada turno puede reservar una sala. La entrada, pausa y salida se registran por separado.' } },
+            { element: '[data-tour="operation-incidents"]', optional: true, popover: { title: 'Control operativo', description: 'Registra incidencias y novedades para que queden trazables.' } },
+        ],
+    },
+    platforms: {
+        available: hasPermission('platforms.view'),
+        steps: [
+            { element: 'main h1', popover: { title: 'Cuentas Studio', description: 'Registra plataformas y cuentas sin habilitar conexiones externas.' } },
+            { element: '[data-tour="platform-safety"]', popover: { title: 'Proteccion de datos', description: 'Las credenciales se cifran y nunca se muestran. Usa Manual o Simulado hasta contar con una integracion oficial.' } },
+            { element: '[data-tour="platform-accounts"]', popover: { title: 'Cuentas y simulaciones', description: 'Vincula cuentas de modelos y prueba un flujo simulado que no contacta al proveedor.' } },
+            { element: '[data-tour="platform-import"]', popover: { title: 'Reportes oficiales', description: 'Registra importaciones manuales para conservar el origen y la trazabilidad de los datos.' } },
+        ],
+    },
+    productivity: {
+        available: hasPermission('reports.operational.view'),
+        steps: [
+            { element: 'main h1', popover: { title: 'Sesiones y productividad', description: 'Registra la sesion operativa y sus transmisiones asociadas.' } },
+            { element: '[data-tour="productivity-summary"]', popover: { title: 'Horas sin duplicados', description: 'La duracion se calcula una vez por sesion, aunque existan transmisiones simultaneas.' } },
+            { element: '[data-tour="productivity-sessions"]', popover: { title: 'Seguimiento auditable', description: 'Cierra sesiones y revisa su origen antes de validar la produccion.' } },
+        ],
+    },
+    administration: {
+        available: hasPermission('branches.manage'),
+        steps: [
+            { element: 'main h1', popover: { title: 'Recursos del estudio', description: 'Administra sedes, activos y mantenimientos internos.' } },
+            { element: '[data-tour="administration-resources"]', popover: { title: 'Control operativo', description: 'Registra cada recurso con su sede y programa mantenimiento preventivo o correctivo.' } },
+        ],
+    },
     workflows: {
         available: hasPermission('settings.manage'),
         steps: [
@@ -151,12 +186,27 @@ export const productTours = {
             { element: 'main h1', popover: { title: 'Historial de alertas', description: 'Consulta las notificaciones para volver rápidamente a la persona o proceso relacionado.' } },
         ],
     },
+    profile: {
+        available: () => true,
+        steps: [
+            { element: 'main h1', popover: { title: 'Mi perfil', description: 'Desde aquí actualizas los datos de tu cuenta y tus preferencias de acceso.' } },
+            { element: '[data-tour="profile-photo"]', popover: { title: 'Foto de perfil privada', description: 'Tu foto se guarda internamente. Para modelos, la selfie verificada de Didit se usa como valor inicial cuando está disponible y puedes reemplazarla.' } },
+        ],
+    },
     'monitor-portal': {
         available: hasPermission('rooms.view_team'),
         steps: [
-            { element: 'a[href="/monitor/dashboard"]', popover: { title: 'Panel operativo', description: 'Empieza aquí para consultar reservas y modelos disponibles.' } },
-            { element: 'nav.sidebar-scroll', popover: { title: 'Rooms y modelos', description: 'Desde este menú gestionas reservas, uso de rooms y modelos asignadas.' } },
-            { element: 'main', popover: { title: 'Tu operación', description: 'Las acciones se aplican a tu equipo y respetan tus permisos de monitor.' } },
+            { element: 'a[href="/monitor/dashboard"]', popover: { title: 'Panel del equipo', description: 'Empieza aquí para consultar el pipeline y los indicadores de tus modelos asignadas.' } },
+            { element: '[data-tour="monitor-statistics"]', popover: { title: 'Indicadores de tu equipo', description: 'Las cifras incluyen únicamente modelos que tienes asignadas.' } },
+            { element: '[data-tour="monitor-pipeline"]', popover: { title: 'Pipeline del equipo', description: 'Compara por semana las sesiones y tokens del equipo que tienes asignado.' } },
+            { element: 'a[href="/monitor/rooms"]', popover: { title: 'Gestiona rooms', description: 'La programación y el control de uso de rooms están en su módulo separado.' } },
+        ],
+    },
+    'monitor-rooms': {
+        available: hasPermission('rooms.view_team'),
+        steps: [
+            { element: 'a[href="/monitor/rooms"]', popover: { title: 'Rooms del equipo', description: 'Programa y controla reservas solo para las modelos que tienes asignadas.' } },
+            { element: 'main', popover: { title: 'Control de uso', description: 'Puedes programar, iniciar, finalizar o cancelar reservas autorizadas. La configuración física pertenece a Administración.' } },
         ],
     },
     'monitor-models': {
@@ -164,14 +214,34 @@ export const productTours = {
         steps: [
             { element: 'a[href="/monitor/models"]', popover: { title: 'Modelos asignadas', description: 'Consulta únicamente los perfiles que te fueron asignados para acompañamiento.' } },
             { element: 'main h1', popover: { title: 'Seguimiento del equipo', description: 'Abre un perfil para revisar información, notas y el seguimiento permitido.' } },
+            { element: '[data-tour="monitor-platform-management"]', optional: true, popover: { title: 'Plataformas asignadas', description: 'Asocia o desvincula cuentas existentes de las modelos que tienes asignadas. Las credenciales y configuraciones sensibles permanecen protegidas.' } },
             { element: 'main', popover: { title: 'Acompañamiento', description: 'Registra novedades según tus permisos y respeta el alcance de tus asignaciones.' } },
         ],
     },
     'model-portal': {
         available: hasPermission('rooms.view_own'),
         steps: [
-            { element: 'a[href="/model/dashboard"]', popover: { title: 'Tu panel', description: 'Consulta la disponibilidad y tus reservas personales.' } },
-            { element: 'main', popover: { title: 'Reserva y registra tu uso', description: 'Desde esta pantalla puedes programar una room e indicar el inicio o cierre de uso.' } },
+            { element: 'a[href="/model/dashboard"]', popover: { title: 'Tu panel', description: 'Consulta tu pipeline y los indicadores asociados solo a tu cuenta.' } },
+            { element: '[data-tour="model-statistics"]', popover: { title: 'Indicadores propios', description: 'Estas estadísticas se calculan solo con tus sesiones, turnos y métricas registradas.' } },
+            { element: '[data-tour="model-pipeline"]', popover: { title: 'Pipeline personal', description: 'Compara tu actividad y producción por semana. Este resumen nunca incluye datos de otras modelos.' } },
+            { element: 'a[href="/model/rooms"]', popover: { title: 'Gestiona tus rooms', description: 'La agenda de rooms está separada del panel para que programes tu uso sin modificar las salas físicas.' } },
+        ],
+    },
+    'model-rooms': {
+        available: hasPermission('rooms.view_own'),
+        steps: [
+            { element: 'a[href="/model/rooms"]', popover: { title: 'Mis rooms', description: 'Consulta disponibilidad y agenda solo tus propias reservas.' } },
+            { element: '[data-tour="model-rooms-availability"]', popover: { title: 'Disponibilidad', description: 'Las rooms físicas las crea y configura Administración. Desde aquí solo puedes solicitar las disponibles.' } },
+            { element: '[data-tour="model-rooms-reservations"]', popover: { title: 'Tus reservas', description: 'Inicia o finaliza únicamente tus propias reservas, según tus permisos y el estado de la agenda.' } },
+        ],
+    },
+    'model-profile': {
+        available: hasPermission('profile.view_own'),
+        steps: [
+            { element: 'a[href="/model/profile"]', popover: { title: 'Mi perfil operativo', description: 'Aquí consultas únicamente la información vinculada a tu propia cuenta.' } },
+            { element: '[data-tour="model-profile"]', popover: { title: 'Estado operativo', description: 'Revisa tu incorporación, monitor asignado y datos personales.' } },
+            { element: '[data-tour="model-documents"]', popover: { title: 'Documentos privados', description: 'Puedes ver y descargar solo los documentos de tu expediente.' } },
+            { element: '[data-tour="model-platforms"]', popover: { title: 'Plataformas', description: 'Se muestran identificadores y estados autorizados; las credenciales nunca se exponen.' } },
         ],
     },
 };
@@ -191,14 +261,22 @@ export function tourKeyForPath(url) {
     if (path.startsWith('/admin/documents')) return 'documents';
     if (path.startsWith('/admin/calendar')) return 'calendar';
     if (path.startsWith('/admin/rooms')) return 'rooms';
+    if (path.startsWith('/admin/operations')) return 'operations';
+    if (path.startsWith('/admin/platforms')) return 'platforms';
+    if (path.startsWith('/admin/productivity')) return 'productivity';
+    if (path.startsWith('/admin/administration')) return 'administration';
     if (path.startsWith('/admin/workflows')) return 'workflows';
     if (path.startsWith('/admin/training-data')) return 'training-data';
     if (path.startsWith('/admin/guided-tours')) return 'guided-tours';
     if (path.startsWith('/admin/users')) return 'users';
     if (path.startsWith('/admin/access')) return 'roles';
     if (path.startsWith('/admin/notifications')) return 'notifications';
+    if (path === '/profile') return 'profile';
     if (path.startsWith('/monitor/models')) return 'monitor-models';
+    if (path.startsWith('/monitor/rooms')) return 'monitor-rooms';
     if (path.startsWith('/monitor')) return 'monitor-portal';
+    if (path.startsWith('/model/profile')) return 'model-profile';
+    if (path.startsWith('/model/rooms')) return 'model-rooms';
     if (path.startsWith('/model')) return 'model-portal';
 
     return 'platform-welcome';
