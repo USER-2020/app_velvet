@@ -126,6 +126,9 @@ function DashboardRouteSkeleton() {
     useEffect(() => {
         const isDashboardPath = (pathname) => pathname === '/dashboard' || pathname.startsWith('/admin');
         const removeStartListener = router.on('start', (event) => {
+            // Partial reloads (for example, realtime updates) must not replace
+            // the visible page with the full route skeleton.
+            if (event.detail?.visit?.only?.length) return;
             const pathname = pathFromVisit(event.detail?.visit);
             setTargetPath(pathname);
             setVisible(isDashboardPath(pathname));
