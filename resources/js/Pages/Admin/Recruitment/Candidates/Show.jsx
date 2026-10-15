@@ -134,11 +134,11 @@ const cleanStatusLabel = (value) => String(value || '')
     .replace(/\u00c3\u00b3/g, '\u00f3').replace(/\u00c3\u00ba/g, '\u00fa').replace(/\u00c3\u00b1/g, '\u00f1')
     .replace(/\u00c2/g, '').replace(/\u00e2\u0080\u00a6/g, '...');
 
-function ProcessStatusCarousel({ currentStatus, onChange }) {
+function ProcessStatusCarousel({ currentStatus }) {
     const stages = statusOptions;
     const activeIndex = Math.max(0, stages.findIndex(([value]) => value === currentStatus));
     const [selectedIndex, setSelectedIndex] = useState(activeIndex);
-    const selectedStage = stages[selectedIndex] || stages[0];
+    const selectedStage = stages[activeIndex] || stages[0];
 
     useEffect(() => setSelectedIndex(activeIndex), [activeIndex]);
 
@@ -149,7 +149,7 @@ function ProcessStatusCarousel({ currentStatus, onChange }) {
         </div>
         <div className="mt-5 min-w-0 overflow-hidden">
             <div className="process-carousel-scroll flex gap-3 overflow-x-auto pb-3" aria-label="Etapas del proceso">
-                {stages.map(([value, label], index) => <button type="button" key={value} onClick={() => { setSelectedIndex(index); if (value !== currentStatus) onChange(value); }} className={`min-w-[220px] flex-1 rounded-xl border p-4 text-left transition ${value === currentStatus ? 'border-[#c22be8] bg-[#291336] shadow-[0_0_18px_rgba(194,43,232,.18)]' : index === selectedIndex ? 'border-[#8c3c9e] bg-[#1b1625]' : 'border-[#343044] bg-[#151522] hover:border-[#694574]'}`}><div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-white">{cleanStatusLabel(label)}</span><span className={`h-2.5 w-2.5 rounded-full ${value === currentStatus ? 'bg-[#c22be8] shadow-[0_0_10px_#c22be8]' : 'bg-[#555064]'}`} /></div><p className="mt-3 text-xs leading-5 text-[#969baa]">{processStageDescriptions[value] || 'Etapa del proceso de selecci\u00f3n.'}</p>{value === currentStatus && <p className="mt-3 text-[10px] font-medium uppercase tracking-[.14em] text-[#e4a3f1]">Etapa activa</p>}</button>)}
+                {stages.map(([value, label], index) => <div key={value} className={`min-w-[220px] flex-1 rounded-xl border p-4 text-left ${value === currentStatus ? 'border-[#c22be8] bg-[#291336] shadow-[0_0_18px_rgba(194,43,232,.18)]' : index === selectedIndex ? 'border-[#8c3c9e] bg-[#1b1625]' : 'border-[#343044] bg-[#151522]'}`}><div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-white">{cleanStatusLabel(label)}</span><span className={`h-2.5 w-2.5 rounded-full ${value === currentStatus ? 'bg-[#c22be8] shadow-[0_0_10px_#c22be8]' : 'bg-[#555064]'}`} /></div><p className="mt-3 text-xs leading-5 text-[#969baa]">{processStageDescriptions[value] || 'Etapa del proceso de selecci\u00f3n.'}</p>{value === currentStatus && <p className="mt-3 text-[10px] font-medium uppercase tracking-[.14em] text-[#e4a3f1]">Etapa activa</p>}</div>)}
             </div>
         </div>
     </div>;
@@ -239,7 +239,7 @@ export default function Show({ candidate, contracting = {}, operational = {} }) 
                         <dl className="mt-7 grid gap-x-8 gap-y-7 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><Detail label="Nombre completo" value={fullName} /><Detail label="Sexo" value={sexLabels[candidate.lead.sex] || candidate.lead.sex} /><Detail label="Email" value={candidate.lead.email} /><Detail label="WhatsApp" value={candidate.lead.phone} /><Detail label="Ciudad" value={candidate.lead.city} /><Detail label="País" value={candidate.lead.country} /><Detail label="Fecha de nacimiento" value={candidate.lead.birth_date ? formatFriendlyDate(candidate.lead.birth_date) : null} /><Detail label="Habla inglés" value={candidate.lead.speaks_english ? 'Sí' : 'No'} /><Detail label="Nivel de inglés" value={candidate.lead.speaks_english ? candidate.lead.english_level : 'No aplica'} /><Detail label="Disponibilidad" value={candidate.lead.availability} /><Detail label="Modalidad" value={candidate.lead.work_mode} /></dl>
                         {candidate.lead.candidate_type === 'MONITOR' && <Detail label="Años de experiencia" value={({ 1: '1 año', 2: '2 años', '3_PLUS': '3 años o más' }[candidate.lead.experience_years] || candidate.lead.experience_years)} />}
                         {candidate.lead.experience && <div className="mt-8 border-t border-[#292d39] pt-7"><p className="text-[10px] uppercase tracking-[.18em] text-[#7f8495]">Experiencia demostrable</p><p className="mt-3 whitespace-pre-line text-sm leading-7 text-[#c3c6d1]">{candidate.lead.experience}</p></div>}
-                        <div className="mt-8 border-t border-[#292d39] pt-7"><ProcessStatusCarousel currentStatus={candidate.status} onChange={(status) => changeStatus({ target: { value: status } })} />{candidate.discard_reason && <p className="mt-4 rounded-lg border border-[#673344] bg-[#321622]/50 px-3 py-2 text-xs leading-5 text-[#ffb1bd]"><strong>Motivo del descarte:</strong> {candidate.discard_reason}</p>}</div>
+                        <div className="mt-8 border-t border-[#292d39] pt-7"><ProcessStatusCarousel currentStatus={candidate.status} />{candidate.discard_reason && <p className="mt-4 rounded-lg border border-[#673344] bg-[#321622]/50 px-3 py-2 text-xs leading-5 text-[#ffb1bd]"><strong>Motivo del descarte:</strong> {candidate.discard_reason}</p>}</div>
                     </section>
                     <aside data-tour="candidate-actions" className="min-w-0 rounded-xl border border-[#292d39] bg-[#11131c]/90 p-6 shadow-[0_18px_55px_rgba(0,0,0,.16)] backdrop-blur-xl sm:p-7">
                         <div className={`space-y-8 ${interviewRecommendation || admissionRecommendation || activationRecommendation || contractingRecommendation || inductionRecommendation || readyToActivateRecommendation || waitingRecommendation || candidate.status === 'CONTRACTING' ? 'admission-active' : ''} ${waitingRecommendation ? 'waiting-recommendation' : ''}`}>
