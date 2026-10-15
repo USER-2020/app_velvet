@@ -1,3 +1,20 @@
+# The Velvet Studio · Plataforma operativa
+
+La guía funcional, técnica y de QA para el equipo está disponible en
+[docs/guia-plataforma.md](docs/guia-plataforma.md). Incluye roles, usuarios de
+prueba, flujos de reclutamiento, visitas guiadas, pruebas y CI.
+
+## Open-source documentation
+
+- [Contributing guide (English)](CONTRIBUTING.md)
+- [Guía para contribuir (Español)](docs/CONTRIBUIR.es.md)
+- [MIT License](LICENSE)
+- [Trademark and brand assets](TRADEMARKS.md)
+- [Security policy](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+
+---
+
 <p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
 <p align="center">

@@ -53,4 +53,36 @@ class Candidate extends Model
     {
         return $this->hasMany(ContractAppointment::class);
     }
+
+    public function contractInvitations()
+    {
+        return $this->hasMany(ContractInvitation::class);
+    }
+
+    public function operationalProfile()
+    {
+        return $this->hasOne(OperationalProfile::class);
+    }
+
+    public function trainingRecords()
+    {
+        return $this->hasMany(OperationalTrainingRecord::class);
+    }
+
+    public function modelAssignments()
+    {
+        return $this->hasMany(ModelMonitorAssignment::class, 'model_candidate_id');
+    }
+
+    public function monitorAssignments()
+    {
+        return $this->hasMany(ModelMonitorAssignment::class, 'monitor_candidate_id');
+    }
+
+    public function currentMonitorAssignment()
+    {
+        return $this->hasOne(ModelMonitorAssignment::class, 'model_candidate_id')
+            ->whereNull('ended_at')
+            ->latestOfMany('assigned_at');
+    }
 }

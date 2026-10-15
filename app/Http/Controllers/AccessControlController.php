@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Permission;
 use App\Models\Role;
+use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -33,6 +34,7 @@ class AccessControlController extends Controller
         $data = $this->validated($request);
         $role = Role::create(collect($data)->except('permissions')->all());
         $role->permissions()->sync($data['permissions'] ?? []);
+        app(AuditLogger::class)->record('access.role_created', $role, ['permission_ids' => $data['permissions'] ?? []]);
 
         return to_route('admin.access.index')->with('success', 'Rol creado correctamente.');
     }
@@ -51,6 +53,7 @@ class AccessControlController extends Controller
         $data = $this->validated($request, $role);
         $role->update(collect($data)->except('permissions')->all());
         $role->permissions()->sync($data['permissions'] ?? []);
+        app(AuditLogger::class)->record('access.role_updated', $role, ['permission_ids' => $data['permissions'] ?? []]);
 
         return to_route('admin.access.index')->with('success', 'Rol actualizado correctamente.');
     }
@@ -58,6 +61,7 @@ class AccessControlController extends Controller
     public function destroy(Role $role): RedirectResponse
     {
         abort_if($role->is_system, 422, 'Los roles del sistema no se pueden eliminar.');
+        app(AuditLogger::class)->record('access.role_deleted', $role, ['role_slug' => $role->slug]);
         $role->delete();
 
         return to_route('admin.access.index')->with('success', 'Rol eliminado correctamente.');

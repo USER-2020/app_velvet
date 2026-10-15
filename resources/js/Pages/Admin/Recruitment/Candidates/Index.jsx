@@ -1,16 +1,18 @@
 ﻿import { Head, Link, router } from '@inertiajs/react';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FiArrowRight, FiEye } from 'react-icons/fi';
 import Layout from '../Layout';
 import { candidateStatusLabels, candidateTypeLabels } from '../../../../lib/recruitmentLabels';
 import { subscribeToRealtime } from '../../../../lib/ably';
+import { useRealtimeFallback } from '../../../../lib/useRealtimeFallback';
 
 export default function Index({ candidates }) {
+    const [realtimeUnavailable, setRealtimeUnavailable] = useState(!import.meta.env.VITE_ABLY_ENABLED);
+    const refresh = useCallback(() => router.reload({ only: ['candidates', 'realtime'], preserveScroll: true, preserveState: true }), []);
     useEffect(() => subscribeToRealtime((data, eventName) => {
-        if (['lead.converted', 'candidate.updated', 'candidate.status_changed', 'candidate.discarded'].includes(eventName)) {
-            router.reload({ only: ['candidates', 'realtime'], preserveScroll: true, preserveState: true });
-        }
-    }), []);
+        if (['lead.converted', 'candidate.updated', 'candidate.status_changed', 'candidate.discarded', 'candidate.prequalification_sent', 'candidate.prequalification_completed', 'candidate.identity_updated'].includes(eventName)) refresh();
+    }, null, (available) => setRealtimeUnavailable(!available)), [refresh]);
+    useRealtimeFallback(refresh, realtimeUnavailable);
 
     return <><Head title="Candidatos" /><Layout title="Candidatos"><p className="text-sm text-[#969baa]">Personas que avanzaron desde la captación hacia selección.</p><div className="mt-5 flex items-center gap-2 text-xs text-[#9297a7]"><span className="h-2.5 w-2.5 rounded-full bg-[#b12dd5]" />Pendiente de gestión</div><div className="mt-4 overflow-hidden rounded-xl border border-[#252936] bg-[#10121a] shadow-[0_18px_55px_rgba(0,0,0,.18)]"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="border-b border-[#282c38] bg-[#141620] text-[10px] uppercase tracking-[.18em] text-[#8e93a5]"><tr><th className="px-5 py-4">Candidato</th><th className="px-5 py-4">Tipo</th><th className="px-5 py-4">Estado</th><th className="px-5 py-4">Código</th><th className="px-5 py-4 text-right">Perfil</th></tr></thead><tbody className="divide-y divide-[#252936]">{candidates.data.length ? candidates.data.map((candidate) => { const pending = ['NEW', 'CONTACTED'].includes(candidate.status); const statusClass = candidate.status === 'DISCARDED' ? 'border-[#7d3144] bg-[#321622] text-[#ffb1bd]' : candidate.status === 'ACTIVE' ? 'border-[#2d8669] bg-[#12372e] text-[#9af2cb]' : 'border-[#9142a7]/50 bg-[#3d164d] text-[#f0c1fa]'; return <tr key={candidate.id} className={`group transition hover:bg-[#171522] ${pending ? 'bg-[#24152b]' : ''}`}><td className="px-5 py-5"><div className="flex items-center gap-2"><Link className="font-medium text-white transition hover:text-[#e0a1ee]" href={`/admin/candidates/${candidate.id}`}>{candidate.lead.first_name} {candidate.lead.last_name}</Link>{pending && <span className="rounded-full border border-[#9f35b9] bg-[#3d164d] px-2 py-0.5 text-[9px] text-[#f0c1fa]">Pendiente</span>}</div><p className="mt-1 text-xs text-[#777d8f]">{candidate.code} <span className="px-1 text-[#4e5361]"> · </span> {candidate.lead.email}</p></td><td className="px-5 py-5 text-[#c4c6d1]">{candidateTypeLabels[candidate.candidate_type] || candidate.candidate_type}</td><td className="px-5 py-5"><span className={`rounded-full border px-3 py-1 text-xs ${statusClass}`}>{candidateStatusLabels[candidate.status] || candidate.status}</span></td><td className="px-5 py-5 font-mono text-xs text-[#9297a7]">{candidate.code}</td><td className="px-5 py-5 text-right"><Link href={`/admin/candidates/${candidate.id}`} aria-label={`Ver perfil de ${candidate.lead.first_name} ${candidate.lead.last_name}`} title="Ver perfil y progreso" className="inline-flex items-center gap-2 rounded-lg border border-[#713080] bg-[#32133d] px-3 py-2 text-xs font-medium text-[#edb4f8] transition hover:border-[#b12dd5] hover:bg-[#55166e] hover:text-white"><FiEye size={14} />Ver perfil<FiArrowRight size={14} className="transition group-hover:translate-x-0.5" /></Link></td></tr>; }) : <tr><td colSpan="5" className="px-5 py-16 text-center text-[#777d8f]">No hay candidatos todavía.</td></tr>}</tbody></table></div></div></Layout></>;
 }

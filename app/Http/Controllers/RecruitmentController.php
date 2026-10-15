@@ -16,15 +16,22 @@ use App\Enums\LeadStatus;
 use App\Http\Requests\StoreLeadRequest;
 use App\Models\Candidate;
 use App\Models\CandidateActivity;
+use App\Models\ContractSlot;
 use App\Models\LeadActivity;
 use App\Models\LeadDocument;
 use App\Models\Lead;
 use App\Models\OnboardingDraft;
 use App\Models\TrainingRecord;
+use App\Models\OperationalProfile;
+use App\Models\OperationalTrainingRecord;
+use App\Models\StudioAccount;
 use App\Services\ApplicationDiscardMailService;
 use App\Services\AdmittedMailService;
 use App\Services\RecruitmentDashboardService;
 use App\Services\InterviewInvitationService;
+use App\Services\ContractingInvitationService;
+use App\Services\AuditLogger;
+use App\Services\ProfilePhotoService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,6 +43,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -109,7 +117,14 @@ class RecruitmentController extends Controller
         ]);
     }
 
-    public function storePrequalification(Request $request, Candidate $candidate, string $token): Response
+    public function prequalificationSuccess(Request $request): Response
+    {
+        return Inertia::render('Public/PrequalificationSuccess', [
+            'candidate' => $request->session()->get('prequalification_completed'),
+        ]);
+    }
+
+    public function storePrequalification(Request $request, Candidate $candidate, string $token): Response|RedirectResponse
     {
         $this->validatePrequalificationLink($candidate, $token);
 
@@ -119,7 +134,7 @@ class RecruitmentController extends Controller
             'experience' => ['required', 'string', 'min:20', 'max:5000'],
             'motivation' => ['required', 'string', 'min:20', 'max:5000'],
             'social_networks' => ['nullable', 'string', 'max:500'],
-            'identity_document' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:5120'],
+            'identity_document' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'mimetypes:application/pdf,image/jpeg,image/png', 'max:5120'],
             'accept_terms' => ['accepted'],
         ]);
 
@@ -191,8 +206,9 @@ class RecruitmentController extends Controller
             ],
         ]);
 
-        return Inertia::render('Public/PrequalificationSuccess', [
-            'candidate' => ['name' => $candidate->lead->full_name, 'code' => $candidate->code],
+        return to_route('prequalification.success')->with('prequalification_completed', [
+            'name' => $candidate->lead->full_name,
+            'code' => $candidate->code,
         ]);
     }
 
@@ -399,6 +415,9 @@ class RecruitmentController extends Controller
             'identity_verified_at' => $status === 'APPROVED' ? now() : null,
             'identity_verification_failure_reason' => $summary['failure_reason'] ?? null,
         ]);
+        if ($status === 'APPROVED') {
+            app(ProfilePhotoService::class)->importDefaultFromDidit($candidate);
+        }
         if (! $sameDecision) {
             $activity = CandidateActivity::create([
                 'candidate_id' => $candidate->id,
@@ -448,12 +467,22 @@ class RecruitmentController extends Controller
             ->map(fn ($total) => (int) $total)
             ->all();
 
-        $status = fn (string $key, string $label, string $description, string $tone = 'purple') => [
+        $status = fn (string $key, string $label, string $description, string $tone = 'purple', ?string $from = null) => [
             'key' => $key,
             'label' => $label,
             'description' => $description,
             'count' => $counts[$key] ?? 0,
             'tone' => $tone,
+            'from' => $from,
+            'kind' => 'status',
+        ];
+        $step = fn (string $key, string $label, string $description, string $tone = 'purple', ?string $from = null) => [
+            'key' => $key,
+            'label' => $label,
+            'description' => $description,
+            'tone' => $tone,
+            'from' => $from,
+            'kind' => 'operation',
         ];
 
         return Inertia::render('Admin/Recruitment/Workflows/Index', [
@@ -469,34 +498,139 @@ class RecruitmentController extends Controller
                         $status('INTERVIEW', 'Entrevista', 'Cita y evaluación inicial', 'blue'),
                         $status('EVALUATION', 'Evaluación', 'Revisión del equipo', 'blue'),
                         $status('ADMITTED', 'Admitido', 'Ingreso aprobado', 'green'),
+                        $status('WAITING', 'En espera', 'Requisitos de contratación', 'amber'),
+                        $status('CONTRACTING', 'Contratación', 'Formalización del ingreso', 'blue'),
                         $status('ONBOARDING', 'Onboarding', 'Documentación de ingreso', 'green'),
-                        $status('ACTIVE', 'Activo', 'Talento habilitado', 'green'),
                     ],
                     'branches' => [
-                        $status('WAITING', 'En espera', 'Pendiente de decisión', 'amber'),
-                        $status('DISCARDED', 'Descartado', 'No continúa el proceso', 'red'),
+                        $status('DISCARDED', 'Descartado', 'No continúa el proceso', 'red', 'EVALUATION'),
                     ],
                 ],
                 [
                     'id' => 'activation',
                     'name' => 'Activación y permanencia',
-                    'description' => 'Seguimiento posterior a la admisión hasta la activación del talento.',
+                    'description' => 'Seguimiento desde el onboarding hasta la activación operativa del talento.',
                     'nodes' => [
-                        $status('ADMITTED', 'Admitido', 'Ingreso aprobado', 'green'),
                         $status('ONBOARDING', 'Onboarding', 'Documentación de ingreso', 'green'),
-                        $status('CONTRACTING', 'Contratación', 'Formalización', 'blue'),
                         $status('INDUCTION', 'Inducción', 'Preparación inicial', 'blue'),
                         $status('READY_TO_ACTIVATE', 'Listo para activar', 'Revisión final', 'green'),
                         $status('ACTIVE', 'Activo', 'Talento habilitado', 'green'),
                     ],
-                    'branches' => [$status('WITHDRAWN', 'Retirado', 'Proceso cerrado', 'red')],
+                    'branches' => [$status('WITHDRAWN', 'Retirado', 'Proceso cerrado', 'red', 'ONBOARDING')],
+                ],
+                [
+                    'id' => 'prequalification',
+                    'name' => 'Precalificación e identidad',
+                    'description' => 'Cómo se solicita el formulario, se valida la identidad con Didit y se habilita el avance a entrevista.',
+                    'nodes' => [
+                        $step('candidate-ready', 'Candidato elegible', 'Lead convertido y pendiente de requisitos'),
+                        $step('send-form', 'Enviar precalificación', 'Se genera un enlace personal con vencimiento'),
+                        $step('person-completes', 'Completar requisitos', 'La persona actualiza datos y adjunta soporte', 'blue'),
+                        $step('didit', 'Validar en Didit', 'Documento, selfie y mayoría de edad', 'blue'),
+                        $step('review-validation', 'Revisar validación', 'El equipo consulta el resultado en Validaciones', 'amber'),
+                        $status('PREQUALIFIED', 'Precalificado', 'Requisitos completos y aprobados', 'green'),
+                    ],
+                    'branches' => [$step('identity-retry', 'Corregir o repetir', 'Se solicita una nueva validación si Didit la rechaza', 'red', 'didit')],
+                ],
+                [
+                    'id' => 'interviews',
+                    'name' => 'Horarios y entrevistas',
+                    'description' => 'Flujo para crear franjas, invitar al candidato, confirmar la cita y llevarla a evaluación.',
+                    'nodes' => [
+                        $status('PREQUALIFIED', 'Precalificado', 'Perfil listo para entrevista', 'green'),
+                        $step('generate-slots', 'Crear horarios', 'El equipo genera franjas disponibles de una hora', 'blue'),
+                        $step('send-invitation', 'Enviar invitación', 'La persona recibe un enlace para elegir horario'),
+                        $status('INTERVIEW', 'Cita confirmada', 'La franja seleccionada queda reservada', 'blue'),
+                        $step('record-notes', 'Registrar resultado', 'Se guardan notas y evidencias de la entrevista', 'amber'),
+                        $status('EVALUATION', 'Evaluación', 'El equipo decide si admite o no al candidato', 'blue'),
+                    ],
+                    'branches' => [
+                        $step('reschedule', 'Reprogramar', 'Libera la franja y envía nuevos horarios', 'amber', 'INTERVIEW'),
+                        $step('no-show', 'No asistió', 'Se registra la novedad para seguimiento', 'red', 'INTERVIEW'),
+                    ],
+                ],
+                [
+                    'id' => 'contracting',
+                    'name' => 'Contratación y documentos',
+                    'description' => 'Ruta desde la admisión: requisitos, carga y validación documental, cita y paso a onboarding.',
+                    'nodes' => [
+                        $status('ADMITTED', 'Admitido', 'Ingreso aprobado por el equipo', 'green'),
+                        $step('start-contracting', 'Iniciar contratación', 'Se envía el listado de requisitos documentales', 'amber'),
+                        $status('WAITING', 'Esperar soportes', 'La persona carga los documentos solicitados', 'amber'),
+                        $step('verify-documents', 'Verificar documentos', 'Documentos revisa, aprueba o pide corrección', 'blue'),
+                        $step('contract-slots', 'Crear cita', 'Se generan y reservan franjas de contratación'),
+                        $status('CONTRACTING', 'Contratación', 'Cita y formalización en curso', 'blue'),
+                        $status('ONBOARDING', 'Onboarding', 'Requisitos de ingreso completos', 'green'),
+                    ],
+                    'branches' => [$step('document-correction', 'Solicitar corrección', 'La persona vuelve a cargar el soporte requerido', 'red', 'verify-documents')],
+                ],
+                [
+                    'id' => 'rooms',
+                    'name' => 'Rooms y reservas',
+                    'description' => 'Cómo se solicita una room, se confirma su disponibilidad y se registra el uso operativo.',
+                    'nodes' => [
+                        $step('room-available', 'Room disponible', 'Administración configura capacidad y disponibilidad', 'green'),
+                        $step('request-room', 'Solicitar reserva', 'Modelo, monitor o equipo pide una franja'),
+                        $step('confirm-room', 'Confirmar reserva', 'El sistema evita cruces y bloquea el horario', 'blue'),
+                        $step('start-room-use', 'Registrar inicio', 'Se marca el comienzo del uso de la room', 'amber'),
+                        $step('finish-room-use', 'Registrar cierre', 'Se cierra el uso y queda trazabilidad', 'green'),
+                    ],
+                    'branches' => [$step('release-room', 'Cancelar o liberar', 'La franja vuelve a estar disponible', 'red', 'confirm-room')],
+                ],
+                [
+                    'id' => 'calendar',
+                    'name' => 'Calendario y seguimiento',
+                    'description' => 'Flujo de recordatorios internos y fechas clave que se originan desde reclutamiento y operación.',
+                    'nodes' => [
+                        $step('detect-deadline', 'Detectar hito', 'Vencimiento, cita, entrevista o tarea pendiente', 'amber'),
+                        $step('create-event', 'Crear evento', 'Se registra recordatorio o seguimiento en Calendario'),
+                        $step('assign-event', 'Asignar responsable', 'El equipo recibe contexto y fecha de ejecución', 'blue'),
+                        $step('complete-event', 'Completar actividad', 'Se conserva el cierre y la trazabilidad', 'green'),
+                    ],
+                    'branches' => [$step('reschedule-event', 'Editar o reprogramar', 'Se ajusta la fecha sin perder el contexto', 'amber', 'assign-event')],
+                ],
+                [
+                    'id' => 'access',
+                    'name' => 'Accesos y operación',
+                    'description' => 'Cómo se crean cuentas internas, se asignan roles y se mantienen los permisos de cada módulo.',
+                    'nodes' => [
+                        $step('create-user', 'Crear usuario', 'Administración registra la cuenta interna'),
+                        $step('assign-role', 'Asignar rol', 'Roles y permisos determinan los módulos visibles', 'blue'),
+                        $step('activate-access', 'Activar acceso', 'La persona puede ingresar según su perfil', 'green'),
+                        $step('audit-access', 'Revisar actividad', 'Notificaciones e historial apoyan el seguimiento', 'amber'),
+                    ],
+                    'branches' => [$step('suspend-access', 'Suspender acceso', 'Se bloquea el ingreso sin borrar historial', 'red', 'audit-access')],
+                ],
+                [
+                    'id' => 'notifications',
+                    'name' => 'Notificaciones y alertas',
+                    'description' => 'Cómo los cambios importantes de cada módulo llegan al equipo y lo llevan de vuelta al caso correspondiente.',
+                    'nodes' => [
+                        $step('business-event', 'Cambio operativo', 'Una acción en leads, candidatos, documentos, citas o rooms genera un evento', 'blue'),
+                        $step('publish-alert', 'Publicar alerta', 'El sistema actualiza contadores y crea la notificación', 'purple'),
+                        $step('team-receives', 'Equipo recibe aviso', 'La campana y el historial muestran el contexto', 'amber'),
+                        $step('open-related-case', 'Abrir caso relacionado', 'La persona vuelve al perfil o módulo que requiere atención', 'green'),
+                    ],
+                    'branches' => [$step('mark-read', 'Marcar como leída', 'La alerta queda en el historial para consulta posterior', 'green', 'team-receives')],
+                ],
+                [
+                    'id' => 'training',
+                    'name' => 'Datos de prueba e inducción',
+                    'description' => 'Ruta segura para crear escenarios de práctica, entrenar equipos y separar la inducción de la operación real.',
+                    'nodes' => [
+                        $step('prepare-sandbox', 'Preparar sandbox', 'Super administración crea o actualiza datos de entrenamiento', 'purple'),
+                        $step('assign-training-profile', 'Asignar perfil de práctica', 'Modelo o monitor ingresa con alcance controlado', 'blue'),
+                        $step('practice-operation', 'Practicar operación', 'Se ensayan reservas, perfiles y procesos sin tocar datos reales', 'amber'),
+                        $step('activate-real-operation', 'Habilitar operación real', 'Tras completar inducción se activa el perfil productivo', 'green'),
+                    ],
+                    'branches' => [$step('reset-sandbox', 'Reiniciar escenario', 'Los datos de prueba se regeneran para una nueva práctica', 'red', 'practice-operation')],
                 ],
             ],
             'summary' => [
                 'total' => Candidate::count(),
                 'active' => $counts['ACTIVE'] ?? 0,
                 'admitted' => $counts['ADMITTED'] ?? 0,
-                'inProgress' => collect($counts)->only(['CONTACTED', 'PREQUALIFIED', 'INTERVIEW', 'EVALUATION', 'ONBOARDING', 'CONTRACTING', 'INDUCTION', 'READY_TO_ACTIVATE'])->sum(),
+                'inProgress' => collect($counts)->only(['CONTACTED', 'PREQUALIFIED', 'INTERVIEW', 'EVALUATION', 'WAITING', 'CONTRACTING', 'ONBOARDING', 'INDUCTION', 'READY_TO_ACTIVATE'])->sum(),
             ],
         ]);
     }
@@ -655,6 +789,7 @@ class RecruitmentController extends Controller
         $discardTransition = $validated['status'] === CandidateStatus::DISCARDED->value
             && $previous !== CandidateStatus::DISCARDED->value
             && $previous !== LeadStatus::DISCARDED->value;
+        $interview = null;
 
         if ($lead->candidate && $validated['status'] === CandidateStatus::INTERVIEW->value && $previous !== CandidateStatus::INTERVIEW->value) {
             try {
@@ -731,6 +866,11 @@ class RecruitmentController extends Controller
             ]);
         $this->publishLeadEvent($lead->fresh('candidate'), $lead->candidate ? 'candidate.status_changed' : 'lead.status_changed', [
             'activity' => ['id' => $activity->id, 'description' => $activity->description, 'created_at' => $activity->created_at?->toIso8601String()],
+            'activities' => collect([$interview?->getRelation('invitationActivity'), $activity])
+                ->filter()
+                ->map(fn (CandidateActivity|LeadActivity $item) => ['id' => $item->id, 'description' => $item->description, 'created_at' => $item->created_at?->toIso8601String()])
+                ->values()
+                ->all(),
             'notification' => ['title' => 'Etapa actualizada', 'description' => "{$lead->full_name}: {$nextLabel}."],
         ]);
 
@@ -775,7 +915,7 @@ class RecruitmentController extends Controller
 
     public function updateLead(Request $request, Lead $lead): RedirectResponse
     {
-        $validated = $request->validate($this->leadDataRules());
+        $validated = $request->validate($this->leadDataRules($request));
         $identityDataChanged = $this->identityDataChanged($validated, $lead);
         $lead->update(Arr::except($validated, ['candidate_type']));
         if ($lead->candidate) {
@@ -898,17 +1038,30 @@ class RecruitmentController extends Controller
 
         $query = Candidate::query()
             ->with('lead')
-            ->where('candidate_type', CandidateType::MODEL)
+            ->where('candidate_type', CandidateType::MODEL->value)
             ->whereIn('status', [
-                CandidateStatus::ADMITTED,
-                CandidateStatus::WAITING,
-                CandidateStatus::ONBOARDING,
-                CandidateStatus::CONTRACTING,
-                CandidateStatus::INDUCTION,
-                CandidateStatus::READY_TO_ACTIVATE,
-                CandidateStatus::ACTIVE,
+                CandidateStatus::ADMITTED->value,
+                CandidateStatus::WAITING->value,
+                CandidateStatus::ONBOARDING->value,
+                CandidateStatus::CONTRACTING->value,
+                CandidateStatus::INDUCTION->value,
+                CandidateStatus::READY_TO_ACTIVATE->value,
+                CandidateStatus::ACTIVE->value,
             ])
             ->latest();
+
+        if ($request->user()?->hasRole('monitor')) {
+            $monitorCandidateId = Candidate::query()
+                ->where('user_id', $request->user()->id)
+                ->value('id');
+            if (! $monitorCandidateId) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereHas('modelAssignments', fn ($assignment) => $assignment
+                    ->where('monitor_candidate_id', $monitorCandidateId)
+                    ->whereNull('ended_at'));
+            }
+        }
 
         if ($search = $request->string('search')->trim()->value()) {
             $query->whereHas('lead', fn ($lead) => $lead
@@ -940,15 +1093,50 @@ class RecruitmentController extends Controller
                 && ! in_array($candidate->status, [CandidateStatus::DISCARDED, CandidateStatus::WITHDRAWN], true),
             404,
         );
+        abort_unless(Gate::forUser($request->user())->allows('viewAssignedModel', $candidate), 403);
 
         return Inertia::render('Admin/MonitorModels/Show', [
             'model' => $candidate->load('lead'),
+            'operationalProfile' => app(PortalRoomController::class)->modelProfileForMonitor($candidate),
+            'statistics' => app(PortalRoomController::class)->statisticsForMonitor($candidate),
+            'platformAccounts' => app(PortalRoomController::class)->platformAccountsForMonitor($candidate),
+            'availablePlatformAccounts' => $request->user()->hasPermissionTo('studio_accounts.assign_assigned')
+                ? $this->availablePlatformAccountsForMonitor()
+                : [],
+            'canManagePlatformAccounts' => $request->user()->hasPermissionTo('studio_accounts.assign_assigned'),
         ]);
+    }
+
+    private function availablePlatformAccountsForMonitor(): array
+    {
+        return StudioAccount::query()
+            ->with('platform:id,name,is_active')
+            ->where('status', '!=', 'DISABLED')
+            ->whereHas('platform', fn ($query) => $query->where('is_active', true))
+            ->orderBy('name')
+            ->get(['id', 'platform_catalog_id', 'name', 'status', 'connection_mode'])
+            ->map(fn (StudioAccount $account) => [
+                'id' => $account->id,
+                'name' => $account->name,
+                'platform' => $account->platform?->name,
+                'status' => $account->status,
+                'connection_mode' => $account->connection_mode,
+            ])
+            ->values()
+            ->all();
     }
 
     private function monitorIsInTraining(Request $request): bool
     {
-        return $request->user()?->hasRole('monitor') && $request->user()->candidate?->status !== CandidateStatus::ACTIVE;
+        if (! $request->user()?->hasRole('monitor')) {
+            return false;
+        }
+
+        $candidate = Candidate::query()
+            ->where('user_id', $request->user()->id)
+            ->first();
+
+        return $candidate?->status !== CandidateStatus::ACTIVE;
     }
 
     private function trainingModelPayload(TrainingRecord $record): array
@@ -973,9 +1161,56 @@ class RecruitmentController extends Controller
         ];
     }
 
-    public function candidate(Candidate $candidate): Response
+    public function candidate(Request $request, Candidate $candidate): Response
     {
-        return Inertia::render('Admin/Recruitment/Candidates/Show', ['candidate' => $candidate->load(['lead.documents', 'user', 'activities.user', 'interviews.slot'])]);
+        $candidate->load([
+            'lead.documents',
+            'user',
+            'activities.user',
+            'interviews.slot',
+            'contractAppointments.slot',
+            'contractInvitations',
+            'operationalProfile',
+            'trainingRecords.completedBy',
+            'modelAssignments' => fn ($query) => $query->latest('assigned_at')->with([
+                'monitorCandidate.lead',
+                'assignedBy',
+                'endedBy',
+            ]),
+        ]);
+
+        $canManageAssignments = $candidate->candidate_type === CandidateType::MODEL
+            && $request->user()->hasPermissionTo('models.assign_monitor');
+
+        return Inertia::render('Admin/Recruitment/Candidates/Show', [
+            'candidate' => $candidate,
+            'contracting' => [
+                'available_slots' => ContractSlot::query()
+                    ->where('status', 'AVAILABLE')
+                    ->where('starts_at', '>', now('UTC'))
+                    ->count(),
+            ],
+            'operational' => [
+                'can_manage_training' => $request->user()->hasPermissionTo('onboarding.manage'),
+                'can_manage_assignments' => $canManageAssignments,
+                'can_end_assignments' => $candidate->candidate_type === CandidateType::MODEL
+                    && $request->user()->hasPermissionTo('models.change_monitor'),
+                'available_monitors' => $canManageAssignments
+                    ? Candidate::query()
+                        ->with('lead')
+                        ->where('candidate_type', CandidateType::MONITOR->value)
+                        ->where('status', CandidateStatus::ACTIVE->value)
+                        ->orderBy('id')
+                        ->get(['id', 'code', 'lead_id', 'status', 'candidate_type'])
+                        ->map(fn (Candidate $monitor) => [
+                            'id' => $monitor->id,
+                            'code' => $monitor->code,
+                            'name' => $monitor->lead?->full_name,
+                        ])
+                        ->values()
+                    : [],
+            ],
+        ]);
     }
 
     public function startContracting(Request $request, Candidate $candidate): RedirectResponse
@@ -1013,6 +1248,37 @@ class RecruitmentController extends Controller
         }
 
         return back()->with('success', 'Contratación iniciada. Se enviaron los requisitos al correo registrado.');
+    }
+
+    public function sendContractingInvitation(Request $request, Candidate $candidate): RedirectResponse
+    {
+        $candidate->loadMissing('lead');
+        $service = app(ContractingInvitationService::class);
+
+        if ($candidate->status !== CandidateStatus::WAITING) {
+            return back()->withErrors(['contracting' => 'El candidato debe estar En espera para enviar la agenda.']);
+        }
+
+        if (! $service->hasVerifiedRequiredDocuments($candidate)) {
+            return back()->withErrors(['contracting' => 'Primero deben estar aprobados los tres documentos obligatorios.']);
+        }
+
+        if (! $service->hasAvailableSlots()) {
+            return back()->withErrors(['contracting' => 'Crea al menos una franja futura antes de enviar la agenda.']);
+        }
+
+        $invitation = $service->send($candidate, $request->user());
+        if (! $invitation) {
+            return back()->withErrors(['contracting' => 'La agenda ya fue enviada o no está disponible para este candidato.']);
+        }
+
+        $this->publishLeadEvent($candidate->fresh('lead')->lead, 'candidate.contracting_invited', [
+            'candidate_id' => $candidate->id,
+            'invitation_id' => $invitation->id,
+            'notification' => ['title' => 'Agenda de contratación enviada', 'description' => "Se enviaron horarios de contratación a {$candidate->lead->full_name}."],
+        ]);
+
+        return back()->with('success', 'Agenda enviada al correo del candidato.');
     }
 
     public function activateCandidateAccess(Request $request, Candidate $candidate): RedirectResponse
@@ -1053,29 +1319,53 @@ class RecruitmentController extends Controller
             $user->syncRoles([$roleSlug]);
             $candidate->update([
                 'user_id' => $user->id,
-                'status' => CandidateStatus::ONBOARDING,
+                'status' => CandidateStatus::INDUCTION,
             ]);
+
+            OperationalProfile::updateOrCreate(
+                ['candidate_id' => $candidate->id],
+                [
+                    'profile_type' => $candidate->candidate_type->value,
+                    'operational_status' => 'PENDING',
+                    'onboarding_completed_at' => now(),
+                ],
+            );
+
+            OperationalTrainingRecord::firstOrCreate(
+                ['candidate_id' => $candidate->id, 'kind' => 'ONBOARDING', 'title' => 'Onboarding administrativo'],
+                [
+                    'status' => 'COMPLETED',
+                    'is_required' => true,
+                    'completed_at' => now(),
+                    'completed_by' => $request->user()->id,
+                    'created_by' => $request->user()->id,
+                    'notes' => 'Acceso operativo creado después de completar la contratación.',
+                ],
+            );
+
+            OperationalTrainingRecord::firstOrCreate(
+                ['candidate_id' => $candidate->id, 'kind' => 'TRAINING', 'title' => 'Inducción operativa inicial'],
+                [
+                    'status' => 'IN_PROGRESS',
+                    'is_required' => true,
+                    'created_by' => $request->user()->id,
+                ],
+            );
 
             $activity = CandidateActivity::create([
                 'candidate_id' => $candidate->id,
                 'user_id' => $request->user()->id,
                 'type' => 'access_created',
-                'description' => 'Acceso al dashboard activado. El candidato pasó a Activo.',
+                'description' => 'Acceso al dashboard creado. El candidato pasó a inducción operativa.',
                 'metadata' => ['user_id' => $user->id, 'role' => $roleSlug],
             ]);
-
-            $activity->update(['description' => 'Acceso al dashboard creado. Se enviaron credenciales temporales; el primer ingreso iniciará la inducción.']);
 
             return [$candidate->fresh(['lead', 'user']), $activity, $temporaryPassword];
         });
 
-        if ($candidate->user && ! $candidate->user->hasVerifiedEmail()) {
-            try {
-                $candidate->user->sendEmailVerificationNotification();
-            } catch (\Throwable $exception) {
-                report($exception);
-            }
-        }
+        // Didit supplies temporary HTTPS image links. Copy the verified portrait after
+        // the user exists, outside the transaction, and keep it on the private disk.
+        app(ProfilePhotoService::class)->importDefaultFromDidit($candidate);
 
         try {
             Mail::to($candidate->lead->email)->send(new CandidateAccessCredentialsMail($candidate, $temporaryPassword));
@@ -1092,7 +1382,7 @@ class RecruitmentController extends Controller
             'notification' => ['title' => 'Credenciales enviadas', 'description' => "Se enviaron las credenciales a {$candidate->lead->full_name}."],
         ]);
 
-        return to_route('admin.candidates.show', $candidate)->with('success', 'Acceso creado. Se enviaron credenciales temporales; el primer ingreso lo pasará a inducción.');
+        return to_route('admin.candidates.show', $candidate)->with('success', 'Acceso creado. Se enviaron credenciales temporales y el perfil pasó a inducción operativa.');
     }
 
     public function updateCandidateAccessStatus(Request $request, Candidate $candidate): RedirectResponse
@@ -1106,6 +1396,14 @@ class RecruitmentController extends Controller
 
         $active = (bool) $validated['active'];
         $candidate->user->update(['is_active' => $active]);
+        app(AuditLogger::class)->record('access.user_status_changed', $candidate->user, ['candidate_id' => $candidate->id, 'is_active' => $active]);
+        OperationalProfile::updateOrCreate(
+            ['candidate_id' => $candidate->id],
+            [
+                'profile_type' => $candidate->candidate_type->value,
+                'operational_status' => $active ? 'ACTIVE' : 'SUSPENDED',
+            ],
+        );
         $activity = CandidateActivity::create([
             'candidate_id' => $candidate->id,
             'user_id' => $request->user()->id,
@@ -1208,7 +1506,7 @@ class RecruitmentController extends Controller
 
     public function updateCandidate(Request $request, Candidate $candidate): RedirectResponse
     {
-        $validated = $request->validate($this->leadDataRules());
+        $validated = $request->validate($this->leadDataRules($request));
         $identityDataChanged = $this->identityDataChanged($validated, $candidate->lead);
         $candidate->lead->update(Arr::except($validated, ['candidate_type']));
         $candidate->update(array_merge(
@@ -1263,6 +1561,7 @@ class RecruitmentController extends Controller
         $nextStatus = CandidateStatus::from($validated['status']);
         $previousStatus = $candidate->status;
         $discardTransition = $nextStatus === CandidateStatus::DISCARDED && $previousStatus !== CandidateStatus::DISCARDED;
+        $interview = null;
 
         if ($nextStatus === CandidateStatus::DISCARDED && ! $request->filled('reason')) {
             return back()->withErrors(['status' => 'Usa la opción “Descartar” e indica el motivo.']);
@@ -1292,8 +1591,30 @@ class RecruitmentController extends Controller
             return back()->withErrors(['status' => 'El candidato debe completar la contratación antes de pasar a onboarding.']);
         }
 
+        if ($nextStatus === CandidateStatus::INDUCTION) {
+            return back()->withErrors(['status' => 'Crea el acceso al dashboard desde onboarding para iniciar la inducción operativa.']);
+        }
+
+        if ($nextStatus === CandidateStatus::READY_TO_ACTIVATE) {
+            if ($previousStatus !== CandidateStatus::INDUCTION) {
+                return back()->withErrors(['status' => 'El candidato debe completar la inducción antes de quedar listo para activar.']);
+            }
+
+            $hasPendingRequiredTraining = $candidate->trainingRecords()
+                ->where('is_required', true)
+                ->whereNotIn('status', ['COMPLETED', 'WAIVED'])
+                ->exists();
+            if ($hasPendingRequiredTraining) {
+                return back()->withErrors(['status' => 'Completa o exime los registros obligatorios de inducción antes de continuar.']);
+            }
+        }
+
         if ($nextStatus === CandidateStatus::ACTIVE && (! $candidate->user_id || ! $candidate->user?->is_active)) {
             return back()->withErrors(['status' => 'Activa primero el acceso al dashboard desde el panel administrativo.']);
+        }
+
+        if ($nextStatus === CandidateStatus::ACTIVE && $previousStatus !== CandidateStatus::READY_TO_ACTIVATE) {
+            return back()->withErrors(['status' => 'El candidato debe quedar listo para activar antes de habilitar la operación.']);
         }
 
         if ($previousStatus === $nextStatus) {
@@ -1328,6 +1649,29 @@ class RecruitmentController extends Controller
             $attributes['discard_reason'] = $request->string('reason')->trim()->value();
         }
         $candidate->update($attributes);
+
+        if ($nextStatus === CandidateStatus::READY_TO_ACTIVATE) {
+            OperationalProfile::updateOrCreate(
+                ['candidate_id' => $candidate->id],
+                [
+                    'profile_type' => $candidate->candidate_type->value,
+                    'operational_status' => 'PENDING',
+                    'induction_completed_at' => now(),
+                ],
+            );
+        }
+
+        if ($nextStatus === CandidateStatus::ACTIVE) {
+            OperationalProfile::updateOrCreate(
+                ['candidate_id' => $candidate->id],
+                [
+                    'profile_type' => $candidate->candidate_type->value,
+                    'operational_status' => 'ACTIVE',
+                    'activated_at' => now(),
+                    'activated_by' => $request->user()->id,
+                ],
+            );
+        }
         $activity = CandidateActivity::create([
             'candidate_id' => $candidate->id,
             'user_id' => $request->user()->id,
@@ -1336,7 +1680,16 @@ class RecruitmentController extends Controller
             'metadata' => ['from' => $previousStatus?->value, 'to' => $nextStatus->value],
         ]);
         $candidate->load('lead');
-        $this->publishLeadEvent($candidate->lead, 'candidate.status_changed', ['candidate_id' => $candidate->id, 'activity' => $activity->only(['id', 'description', 'created_at']), 'notification' => ['title' => 'Estado de candidato actualizado', 'description' => "{$candidate->lead->full_name}: {$nextStatus->label()}."]]);
+        $this->publishLeadEvent($candidate->lead, 'candidate.status_changed', [
+            'candidate_id' => $candidate->id,
+            'activity' => $activity->only(['id', 'description', 'created_at']),
+            'activities' => collect([$interview?->getRelation('invitationActivity'), $activity])
+                ->filter()
+                ->map(fn (CandidateActivity $item) => $item->only(['id', 'description', 'created_at']))
+                ->values()
+                ->all(),
+            'notification' => ['title' => 'Estado de candidato actualizado', 'description' => "{$candidate->lead->full_name}: {$nextStatus->label()}."],
+        ]);
 
         if ($discardTransition) {
             $discardMail->send($candidate->lead, $previousStatus?->value ?: CandidateStatus::NEW->value);
@@ -1387,7 +1740,7 @@ class RecruitmentController extends Controller
         return preg_replace_callback('/\\b[A-Z][A-Z_]+\\b/', fn (array $match) => $labels[$match[0]] ?? $match[0], $description);
     }
 
-    private function leadDataRules(): array
+    private function leadDataRules(Request $request): array
     {
         return [
             'candidate_type' => ['required', Rule::in(['MODEL', 'MONITOR'])],
@@ -1400,9 +1753,9 @@ class RecruitmentController extends Controller
             'city' => ['required', 'string', 'max:100'],
             'birth_date' => ['nullable', 'required_if:candidate_type,MODEL', 'date', 'before_or_equal:' . now()->subYears(18)->toDateString()],
             'experience' => ['nullable', 'string', 'max:5000'],
-            'experience_years' => [Rule::requiredIf(fn () => $this->input('candidate_type') === 'MONITOR'), 'nullable', Rule::in(['1', '2', '3_PLUS'])],
+            'experience_years' => [Rule::requiredIf(fn () => $request->input('candidate_type') === 'MONITOR'), 'nullable', Rule::in(['1', '2', '3_PLUS'])],
             'speaks_english' => ['sometimes', 'boolean'],
-            'english_level' => [Rule::requiredIf(fn () => $this->boolean('speaks_english')), 'nullable', Rule::in(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'NATIVE'])],
+            'english_level' => [Rule::requiredIf(fn () => $request->boolean('speaks_english')), 'nullable', Rule::in(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'NATIVE'])],
             'motivation' => ['nullable', 'string', 'max:5000'],
             'availability' => ['required', 'string', 'max:100'],
             'work_mode' => ['required', 'string', 'max:100', 'in:En estudio'],

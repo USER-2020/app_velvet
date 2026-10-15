@@ -1,0 +1,8 @@
+interface:
+  display_name: "The Velvet Studio · Contexto"
+  short_description: "Contexto operativo y técnico de The Velvet Studio"
+  brand_color: "#8B3FA0"
+  default_prompt: "Usa $velvet-studio-context para responder preguntas sobre la arquitectura, operación y desarrollo de The Velvet Studio."
+
+policy:
+  allow_implicit_invocation: true
