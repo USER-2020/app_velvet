@@ -1,0 +1,862 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "VELVET Master Agent API",
+    "version": "0.2.0",
+    "description": "Implementación Master con OAuth Authorization Code + PKCE y compatibilidad con enrolamiento temporal. Precisiones y despliegue: AGENT_INTEGRATION.md. JSON camelCase; HTTPS obligatorio."
+  },
+  "servers": [
+    {
+      "url": "https://master.example.invalid"
+    }
+  ],
+  "paths": {
+    "/oauth/agent/authorize": {
+      "get": {
+        "operationId": "authorizeAgent",
+        "summary": "Autorizar Agent en el navegador oficial de Master",
+        "description": "Requiere sesión web, correo verificado y permiso stations.enroll. Solo acepta callbacks loopback http://127.0.0.1:<puerto>/oauth/callback o localhost con PKCE S256.",
+        "parameters": [
+          {"name":"client_id","in":"query","required":true,"schema":{"type":"string","enum":["velvet-agent"]}},
+          {"name":"redirect_uri","in":"query","required":true,"schema":{"type":"string","format":"uri"}},
+          {"name":"response_type","in":"query","required":true,"schema":{"type":"string","enum":["code"]}},
+          {"name":"installation_id","in":"query","required":true,"schema":{"type":"string","format":"uuid"}},
+          {"name":"hostname","in":"query","required":true,"schema":{"type":"string","maxLength":255}},
+          {"name":"studio_id","in":"query","required":true,"schema":{"type":"string","maxLength":100}},
+          {"name":"code_challenge","in":"query","required":true,"schema":{"type":"string","minLength":43,"maxLength":128}},
+          {"name":"code_challenge_method","in":"query","required":true,"schema":{"type":"string","enum":["S256"]}},
+          {"name":"state","in":"query","required":false,"schema":{"type":"string","maxLength":512}}
+        ],
+        "responses": {"302":{"description":"Redirección al callback del Agent con code y state"},"401":{"description":"Sesión web requerida"},"403":{"description":"Permiso insuficiente"}}
+      }
+    },
+    "/api/agent/oauth/token": {
+      "post": {
+        "operationId": "agentToken",
+        "security": [],
+        "requestBody": {"required":true,"content":{"application/x-www-form-urlencoded":{"schema":{"oneOf":[{"$ref":"#/components/schemas/AuthorizationCodeGrant"},{"$ref":"#/components/schemas/RefreshTokenGrant"}]}}}},
+        "responses": {"200":{"description":"Tokens emitidos o rotados","content":{"application/json":{"schema":{"$ref":"#/components/schemas/OAuthTokenResponse"}}}},"400":{"description":"Código, PKCE o refresh inválido"},"429":{"description":"Límite excedido"}}
+      }
+    },
+    "/api/agent/oauth/revoke": {
+      "post": {
+        "operationId": "revokeAgentSession",
+        "security":[{"oauthBearer":[]}],
+        "responses":{"204":{"description":"Sesión revocada"},"401":{"description":"Access token inválido o expirado"}}
+      }
+    },
+    "/api/agent/me": {
+      "get": {"operationId":"agentMe","security":[{"oauthBearer":[]}],"responses":{"200":{"description":"Usuario, permisos, módulos y estación asociada","content":{"application/json":{"schema":{"$ref":"#/components/schemas/AgentMeResponse"}}}},"401":{"description":"Access token inválido o expirado"}}}
+    },
+    "/api/agent/station": {
+      "get": {"operationId":"agentStation","security":[{"oauthBearer":[]}],"responses":{"200":{"description":"Identidad y abilities de estación"},"401":{"description":"Access token inválido o expirado"}}}
+    },
+    "/api/agent/station/configuration": {
+      "get": {"operationId":"agentStationConfiguration","security":[{"oauthBearer":[]}],"responses":{"200":{"description":"Configuración de estación","content":{"application/json":{"schema":{"$ref":"#/components/schemas/AgentConfiguration"}}}},"401":{"description":"Access token inválido o expirado"}}}
+    },
+    "/api/agent/sessions/start": {
+      "post": {
+        "operationId": "startAgentWorkSession",
+        "security": [{"oauthBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentWorkSessionStart"}}}},
+        "responses": {"201": {"description": "Sesión activa", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentWorkSessionResponse"}}}}, "400": {"description": "Solicitud inválida"}, "401": {"description": "OAuth inválido"}, "409": {"description": "La estación ya tiene otra sesión activa"}}
+      }
+    },
+    "/api/agent/sessions/{sessionId}/end": {
+      "post": {
+        "operationId": "endAgentWorkSession",
+        "security": [{"oauthBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}, {"name": "sessionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentWorkSessionEnd"}}}},
+        "responses": {"200": {"description": "Sesión finalizada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentWorkSessionResponse"}}}}, "401": {"description": "OAuth inválido"}, "404": {"description": "Sesión desconocida"}}
+      }
+    },
+    "/api/agent/sessions/{sessionId}/transmission/start": {
+      "post": {
+        "operationId": "startAgentTransmission",
+        "security": [{"oauthBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}, {"name": "sessionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"200": {"description": "Transmisión iniciada", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentWorkSessionResponse"}}}}, "401": {"description": "OAuth inválido"}, "404": {"description": "Sesión desconocida"}}
+      }
+    },
+    "/api/agent/sessions/{sessionId}/transmission/stop": {
+      "post": {
+        "operationId": "stopAgentTransmission",
+        "security": [{"oauthBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}, {"name": "sessionId", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"200": {"description": "Transmisión detenida", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AgentWorkSessionResponse"}}}}, "401": {"description": "OAuth inválido"}, "404": {"description": "Sesión desconocida"}}
+      }
+    },
+    "/api/agent/enroll": {
+      "post": {
+        "operationId": "enroll",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollmentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "401": {
+            "description": "Credencial ausente o revocada"
+          },
+          "403": {
+            "description": "Permiso insuficiente"
+          },
+          "429": {
+            "description": "Límite excedido"
+          },
+          "409": {
+            "description": "Conflicto de cuerpo, UUID, estado o ventana idempotente vencida"
+          },
+          "413": {
+            "description": "Payload mayor de 65536 bytes"
+          },
+          "503": {
+            "description": "Configuración temporalmente no disponible"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollmentRequest"
+              }
+            }
+          }
+        },
+        "description": "Payload máximo 65536 bytes. Fechas RFC3339, zona obligatoria, 0–7 decimales, hasta cinco minutos en el futuro."
+      }
+    },
+    "/api/agent/heartbeat": {
+      "post": {
+        "operationId": "heartbeat",
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "401": {
+            "description": "Credencial ausente o revocada"
+          },
+          "403": {
+            "description": "Permiso insuficiente"
+          },
+          "429": {
+            "description": "Límite excedido"
+          },
+          "409": {
+            "description": "Conflicto de cuerpo, UUID, estado o ventana idempotente vencida"
+          },
+          "413": {
+            "description": "Payload mayor de 65536 bytes"
+          },
+          "503": {
+            "description": "Configuración temporalmente no disponible"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentHeartbeat"
+              }
+            }
+          }
+        },
+        "description": "Payload máximo 65536 bytes. Fechas RFC3339, zona obligatoria, 0–7 decimales, hasta cinco minutos en el futuro."
+      }
+    },
+    "/api/agent/configuration": {
+      "get": {
+        "operationId": "configuration",
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConfiguration"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "401": {
+            "description": "Credencial ausente o revocada"
+          },
+          "403": {
+            "description": "Permiso insuficiente"
+          },
+          "429": {
+            "description": "Límite excedido"
+          },
+          "409": {
+            "description": "Conflicto de cuerpo, UUID, estado o ventana idempotente vencida"
+          },
+          "413": {
+            "description": "Payload mayor de 65536 bytes"
+          },
+          "503": {
+            "description": "Configuración temporalmente no disponible"
+          }
+        },
+        "description": "Payload máximo 65536 bytes. Fechas RFC3339, zona obligatoria, 0–7 decimales, hasta cinco minutos en el futuro."
+      }
+    },
+    "/api/agent/events": {
+      "post": {
+        "operationId": "events",
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "401": {
+            "description": "Credencial ausente o revocada"
+          },
+          "403": {
+            "description": "Permiso insuficiente"
+          },
+          "429": {
+            "description": "Límite excedido"
+          },
+          "409": {
+            "description": "Conflicto de cuerpo, UUID, estado o ventana idempotente vencida"
+          },
+          "413": {
+            "description": "Payload mayor de 65536 bytes"
+          },
+          "503": {
+            "description": "Configuración temporalmente no disponible"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentEvent"
+              }
+            }
+          }
+        },
+        "description": "Payload máximo 65536 bytes. Fechas RFC3339, zona obligatoria, 0–7 decimales, hasta cinco minutos en el futuro."
+      }
+    },
+    "/api/agent/commands/{id}/result": {
+      "post": {
+        "operationId": "commands_ById_result",
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "401": {
+            "description": "Credencial ausente o revocada"
+          },
+          "403": {
+            "description": "Permiso insuficiente"
+          },
+          "429": {
+            "description": "Límite excedido"
+          },
+          "409": {
+            "description": "Conflicto de cuerpo, UUID, estado o ventana idempotente vencida"
+          },
+          "413": {
+            "description": "Payload mayor de 65536 bytes"
+          },
+          "503": {
+            "description": "Configuración temporalmente no disponible"
+          },
+          "404": {
+            "description": "Reserva desconocida o perteneciente a otra estación"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandExecutionResult"
+              }
+            }
+          }
+        },
+        "description": "Payload máximo 65536 bytes. Fechas RFC3339, zona obligatoria, 0–7 decimales, hasta cinco minutos en el futuro."
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {"type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[A-Za-z0-9._:-]+$"}
+      }
+    },
+    "securitySchemes": {
+      "deviceBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Credencial de estación heredada o access_token OAuth del Agent."
+      },
+      "oauthBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "access_token"
+      }
+    },
+    "schemas": {
+      "AuthorizationCodeGrant": {
+        "type": "object",
+        "properties": {"grant_type":{"type":"string","enum":["authorization_code"]},"client_id":{"type":"string","enum":["velvet-agent"]},"code":{"type":"string"},"redirect_uri":{"type":"string","format":"uri"},"code_verifier":{"type":"string","minLength":43,"maxLength":128}},
+        "required":["grant_type","client_id","code","redirect_uri","code_verifier"]
+      },
+      "RefreshTokenGrant": {
+        "type": "object",
+        "properties": {"grant_type":{"type":"string","enum":["refresh_token"]},"client_id":{"type":"string","enum":["velvet-agent"]},"refresh_token":{"type":"string"}},
+        "required":["grant_type","client_id","refresh_token"]
+      },
+      "OAuthTokenResponse": {
+        "type":"object",
+        "properties":{"token_type":{"type":"string","enum":["Bearer"]},"access_token":{"type":"string"},"refresh_token":{"type":"string"},"expires_in":{"type":"integer"},"refresh_expires_in":{"type":"integer"},"station":{"type":"object"}},
+        "required":["token_type","access_token","refresh_token","expires_in","refresh_expires_in","station"]
+      },
+      "AgentMeResponse": {
+        "type": "object",
+        "required": ["user", "modules", "station"],
+        "properties": {
+          "user": {
+            "type": "object",
+            "required": ["id", "name", "email", "roles", "permissions"],
+            "properties": {
+              "id": {"type": "integer"},
+              "name": {"type": "string"},
+              "email": {"type": "string", "format": "email"},
+              "roles": {"type": "array", "items": {"type": "string"}},
+              "permissions": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "modules": {
+            "type": "object",
+            "required": ["home", "monitoring", "obs", "diagnostics", "configuration"],
+            "properties": {
+              "home": {"type": "boolean"},
+              "monitoring": {"type": "boolean"},
+              "obs": {"type": "boolean"},
+              "diagnostics": {"type": "boolean"},
+              "configuration": {"type": "boolean", "description": "Requiere stations.configure."}
+            }
+          },
+          "station": {"$ref": "#/components/schemas/StationIdentity"}
+        }
+      },
+      "StationIdentity": {
+        "type": "object",
+        "properties": {
+          "installationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hostname": {
+            "type": "string",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "installationId",
+          "hostname"
+        ]
+      },
+      "EnrollmentRequest": {
+        "type": "object",
+        "properties": {
+          "installationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hostname": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "writeOnly": true
+          }
+        },
+        "required": [
+          "installationId",
+          "hostname",
+          "token"
+        ]
+      },
+      "EnrollmentResponse": {
+        "type": "object",
+        "properties": {
+          "deviceToken": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "deviceToken"
+        ]
+      },
+      "AgentConfiguration": {
+        "type": "object",
+        "properties": {
+          "masterUrl": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          },
+          "studioId": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "heartbeatSeconds": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 3600
+          },
+          "development": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "masterUrl",
+          "studioId",
+          "heartbeatSeconds",
+          "development"
+        ]
+      },
+      "SystemMetrics": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "operatingSystem": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "architecture": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "cpuCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65536
+          },
+          "cpuPercent": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "ramTotalBytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "ramAvailableBytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "ramUsedPercent": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 100
+          },
+          "diskAvailableBytes": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          }
+        },
+        "required": [
+          "hostname",
+          "operatingSystem",
+          "architecture",
+          "cpuCount",
+          "cpuPercent",
+          "ramTotalBytes",
+          "ramAvailableBytes",
+          "ramUsedPercent",
+          "diskAvailableBytes"
+        ]
+      },
+      "ObsStatus": {
+        "type": "object",
+        "properties": {
+          "processRunning": {
+            "type": "boolean"
+          },
+          "webSocketConnected": {
+            "type": "boolean"
+          },
+          "streaming": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "currentScene": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "scenes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 255
+            },
+            "nullable": true,
+            "maxItems": 100
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "processRunning",
+          "webSocketConnected",
+          "streaming",
+          "currentScene",
+          "scenes",
+          "error"
+        ]
+      },
+      "AgentStatus": {
+        "type": "object",
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/StationIdentity"
+          },
+          "enrollment": {
+            "type": "integer",
+            "enum": [
+              0,
+              1,
+              2
+            ],
+            "description": "0=NotEnrolled,1=Enrolled,2=Revoked"
+          },
+          "masterConnected": {
+            "type": "boolean"
+          },
+          "lastSync": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "uptimeSeconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000000000
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/SystemMetrics"
+          },
+          "obs": {
+            "$ref": "#/components/schemas/ObsStatus"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "development-adapter",
+              "master-api"
+            ]
+          },
+          "userAuthenticated": {
+            "type": "boolean"
+          },
+          "userId": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "userDisplayName": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 255
+          },
+          "userRole": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 100
+          },
+          "configurationAvailable": {
+            "type": "boolean"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "sessionStartedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "identity",
+          "enrollment",
+          "masterConnected",
+          "lastSync",
+          "version",
+          "uptimeSeconds",
+          "metrics",
+          "obs",
+          "mode"
+        ]
+      },
+      "AgentHeartbeat": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sessionId": {"type": "string", "format": "uuid", "nullable": true},
+          "active": {"type": "boolean"},
+          "status": {
+            "$ref": "#/components/schemas/AgentStatus"
+          }
+        },
+        "required": [
+          "id",
+          "sentAt",
+          "status"
+        ]
+      },
+      "AgentWorkSessionStart": {
+        "type": "object",
+        "properties": {
+          "installationId": {"type": "string", "format": "uuid"},
+          "stationId": {"type": "integer"},
+          "studioId": {"type": "string", "maxLength": 100},
+          "userId": {"type": "integer"},
+          "startedAt": {"type": "string", "format": "date-time", "description": "Informativo; Master usa su timestamp."}
+        },
+        "required": ["installationId", "stationId", "studioId", "userId"]
+      },
+      "AgentWorkSessionEnd": {
+        "type": "object",
+        "properties": {"reason": {"type": "string", "enum": ["logout", "revoked", "timeout", "service_stopped", "connection_lost"]}},
+        "required": ["reason"]
+      },
+      "AgentWorkSessionResponse": {
+        "type": "object",
+        "properties": {
+          "sessionId": {"type": "string", "format": "uuid"},
+          "startedAt": {"type": "string", "format": "date-time"},
+          "status": {"type": "string", "enum": ["active", "ended", "expired", "revoked"]},
+          "endedAt": {"type": "string", "format": "date-time", "nullable": true},
+          "transmissionStartedAt": {"type": "string", "format": "date-time", "nullable": true},
+          "totalConnectedSeconds": {"type": "integer"},
+          "totalStreamingSeconds": {"type": "integer"}
+        },
+        "required": ["sessionId", "startedAt", "status"]
+      },
+      "AgentEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z0-9._:-]+$"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "kind",
+          "message"
+        ]
+      },
+      "AgentCommand": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "RefreshStatus"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "expiresAt"
+        ]
+      },
+      "CommandExecutionResult": {
+        "type": "object",
+        "properties": {
+          "commandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "commandId",
+          "success",
+          "message"
+        ]
+      }
+    }
+  }
+}

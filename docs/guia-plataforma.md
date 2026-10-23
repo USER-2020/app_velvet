@@ -234,12 +234,14 @@ La suite cubre, entre otros:
 - aplicación pública, leads y conversión de candidatos;
 - preclasificación y su confirmación pública;
 - franjas, invitación, reserva y confirmación de entrevista;
-- workflows y datos del dashboard.
+- workflows y datos del dashboard;
+- integración Agent: tokens de un uso, aislamiento, revocación, idempotencia, telemetría, configuración y resultados de comandos.
 
 Ejecutar localmente:
 
 ```bash
 php artisan test
+node --test tests/js/*.test.mjs
 npm run build
 ```
 
@@ -251,7 +253,7 @@ El workflow está en `.github/workflows/ci.yml` y corre en cada `push` y
 | Job | Validaciones |
 | --- | --- |
 | Backend · PHP 8.2 | Instalación de Composer, validación estricta de `composer.json` y `php artisan test`. |
-| Frontend · Node 22 | `npm ci` y `npm run build`. |
+| Frontend · Node 22 | `npm ci`, `npm run build` y `node --test tests/js/*.test.mjs`. |
 
 Para impedir merges con fallos se deben requerir ambos checks en:
 
@@ -273,3 +275,16 @@ el estándar sin introducir un cambio masivo no funcional.
 5. Crear o actualizar pruebas de feature/regresión.
 6. Ejecutar `php artisan test` y `npm run build`.
 7. Actualizar este documento si cambia la operación del equipo.
+
+## 12. Integración con VELVET Agent
+
+Actualización: 2026-10-21. Las APIs de Master están implementadas; su activación requiere configurar HTTPS, estudios válidos, migraciones, permisos y scheduler. Consulte [la guía de integración](AGENT_INTEGRATION.md) y [OpenAPI 0.1.1](agent.openapi.json).
+
+- Agent se enrola con un token temporal de un uso; recibe una credencial independiente por estación. No inicia sesión como usuario de Master.
+- Las cinco rutas de dispositivo están bajo `/api/agent`: enrolamiento, heartbeat, configuración, eventos y resultados de comandos. Exigen HTTPS y los POST requieren `Idempotency-Key`; las peticiones posteriores al enrolamiento usan Bearer.
+- Las acciones administrativas son rutas JSON bajo `/admin/agent`, con sesión web, CSRF y permisos `stations.*`. No existe aún pantalla de administración de estaciones.
+- La estación hereda el estudio del token. `AGENT_STUDIO_IDS` es el registro externo autorizado mientras no exista una entidad Studio propia en Master.
+- `agent:maintain` se ejecuta cada minuto desde el scheduler para caducidad, limpieza de respuestas cifradas y detección offline.
+- Solo se reservan comandos `RefreshStatus`; su entrega a Agent y los canales Reverb/WSS están pendientes. No hay shell remoto ni escritura OBS.
+
+`AgentIntegrationTest` cubre estos flujos. La prueba frontend `tests/js/auth-csrf.test.mjs` verifica el token XSRF actualizado tras cambios de sesión; cerrar sesión redirige a `/login`.

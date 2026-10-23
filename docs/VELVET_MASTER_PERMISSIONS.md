@@ -1,6 +1,6 @@
 # Permisos operativos de Velvet Master
 
-Actualizado: 2026-10-12.
+Actualizado: 2026-10-21.
 
 ## Arquitectura y seeder responsable
 
@@ -33,6 +33,10 @@ La migración `2026_10_12_030000_adopt_spatie_permission_without_losing_legacy_a
 | Reportes operativos | `reports.operational.view` | admin, operations_director, manager, finance, compliance |
 | Configuración e integraciones | `integrations.finance_export` | admin, finance |
 | Cuentas Studio asignadas | `studio_accounts.assign_assigned` | monitor |
+| VELVET Agent | `stations.enroll` | admin |
+| VELVET Agent | `stations.configure` | admin |
+| VELVET Agent | `stations.revoke` | admin |
+| VELVET Agent | `stations.commands` | admin |
 
 El rol `super_admin` conserva su bypass global en `User::hasPermissionTo()` y no requiere pivots adicionales. Reclutamiento, modelo, candidato, marketing y soporte no reciben permisos nuevos automáticamente.
 
@@ -74,3 +78,22 @@ La migración `2026_10_12_080000_add_room_reservation_to_operational_sessions.ph
 php artisan db:seed --class=VelvetMasterOperationalPermissionsSeeder
 php artisan test
 ```
+
+## Autorización de estaciones Agent
+
+Los permisos `stations.*` se registran en `VelvetMasterOperationalPermissionsSeeder`. Las rutas `/admin/agent` usan `EnsurePermission`, además de sesión web, usuario activo, correo verificado, CSRF y HTTPS. El bypass existente de `super_admin` continúa aplicando. Los demás roles no reciben estos cuatro permisos automáticamente.
+
+El login OAuth del Agent también exige `stations.enroll` para autorizar una estación desde el navegador. La sesión OAuth vincula el usuario autorizado con la estación y la sede, pero no convierte al dispositivo en un usuario ni modifica sus roles. La revocación del access token invalida también su refresh token.
+
+Los dispositivos no heredan roles de personas. `AuthenticateAgent` comprueba la credencial SHA-256, revocación y ability en cada petición, antes de cualquier replay idempotente:
+
+| Ruta | Ability de dispositivo |
+| --- | --- |
+| POST `/api/agent/heartbeat` | `agent:heartbeat` |
+| GET `/api/agent/configuration` | `agent:configuration` |
+| POST `/api/agent/events` | `agent:events` |
+| POST `/api/agent/commands/{id}/result` | `agent:results` |
+
+El enrolamiento usa un token temporal, no estas abilities. El estudio procede del token emitido por administración y el heartbeat debe coincidir con la instalación autenticada. Los resultados solo pueden modificar reservas de esa estación. No hay pertenencias de usuario a estudios implementadas: los permisos administrativos son globales, no una política multiestudio.
+
+Referencia: [integración Agent](AGENT_INTEGRATION.md). `AgentIntegrationTest` comprueba permisos administrativos, aislamiento, abilities y revocación antes de replay.

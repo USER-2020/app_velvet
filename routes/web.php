@@ -20,6 +20,8 @@ use App\Http\Controllers\GuidedTourSettingsController;
 use App\Http\Controllers\OperationalProfileController;
 use App\Http\Controllers\StudioOperationsController;
 use App\Http\Controllers\MasterOperationsController;
+use App\Http\Controllers\PlatformDocumentationController;
+use App\Http\Controllers\AgentWorkSessionController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -68,12 +70,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/dashboard', [PortalRoomController::class, 'modelDashboard'])->name('dashboard');
         Route::get('/rooms', [PortalRoomController::class, 'modelRooms'])->name('rooms');
         Route::get('/profile', [PortalRoomController::class, 'modelProfile'])->middleware('permission:profile.view_own')->name('profile');
+        Route::get('/work-sessions', [AgentWorkSessionController::class, 'index'])->middleware('permission:metrics.view_own')->name('work-sessions');
         Route::post('/rooms/reservations', [PortalRoomController::class, 'storeModelReservation'])->middleware(['permission:rooms.reserve_own', 'active.profile'])->name('rooms.reservations.store');
         Route::patch('/rooms/reservations/{reservation}/status', [PortalRoomController::class, 'updateModelReservationStatus'])->middleware(['permission:rooms.use_own', 'active.profile'])->name('rooms.reservations.status.update');
     });
     Route::middleware(['permission:rooms.view_team', 'active.profile'])->prefix('monitor')->name('monitor.')->group(function () {
         Route::get('/dashboard', [PortalRoomController::class, 'monitorDashboard'])->name('dashboard');
         Route::get('/rooms', [PortalRoomController::class, 'monitorRooms'])->name('rooms');
+        Route::get('/work-sessions', [AgentWorkSessionController::class, 'index'])->middleware('permission:models.view_metrics')->name('work-sessions');
         Route::post('/rooms/reservations', [PortalRoomController::class, 'storeMonitorReservation'])->middleware(['permission:rooms.manage_reservations', 'active.profile'])->name('rooms.reservations.store');
         Route::patch('/rooms/reservations/{reservation}/status', [PortalRoomController::class, 'updateMonitorReservationStatus'])->middleware(['permission:rooms.manage_usage', 'active.profile'])->name('rooms.reservations.status.update');
     });
@@ -90,8 +94,18 @@ Route::middleware('auth')->group(function () {
         Route::get('/{document}/download', [PortalRoomController::class, 'downloadContractDocument'])->name('download');
     });
     Route::prefix('admin')->name('admin.')->group(function () {
+        Route::get('/work-sessions', [AgentWorkSessionController::class, 'index'])->middleware('permission:dashboard.view')->name('work-sessions');
         Route::get('/guided-tours', [GuidedTourSettingsController::class, 'index'])->name('guided-tours.index');
         Route::put('/guided-tours', [GuidedTourSettingsController::class, 'update'])->name('guided-tours.update');
+        Route::prefix('documentation')->name('documentation.')->group(function () {
+            Route::get('/', [PlatformDocumentationController::class, 'index'])->name('index');
+            Route::get('/{documentation}/download', [PlatformDocumentationController::class, 'download'])->name('download');
+            Route::get('/references/{key}', [PlatformDocumentationController::class, 'reference'])->name('reference');
+            Route::middleware('permission:super_admin')->group(function () {
+                Route::post('/', [PlatformDocumentationController::class, 'store'])->name('store');
+                Route::delete('/{documentation}', [PlatformDocumentationController::class, 'destroy'])->name('destroy');
+            });
+        });
         Route::middleware('permission:dashboard.view')->group(function () {
             Route::get('/', [RecruitmentController::class, 'dashboard'])->name('dashboard');
             Route::get('/recruitment', [RecruitmentController::class, 'dashboard'])->name('recruitment');
@@ -230,3 +244,23 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__.'/auth.php';
+
+// OAuth authorization for the desktop Agent. The browser session is the user login;
+// the resulting code is bound to the station, redirect URI and PKCE verifier.
+Route::get('/oauth/agent/authorize', [\App\Http\Controllers\Agent\AgentOAuthController::class, 'authorize'])
+    ->middleware(['auth', 'verified', \App\Http\Middleware\EnsureAgentOAuthPermission::class])
+    ->name('oauth.agent.authorize');
+
+// Administrative integration API: existing web session, CSRF, active account and explicit permission.
+Route::prefix('admin/agent')->middleware(['auth', 'verified', \App\Http\Middleware\Agent\AgentTransport::class, 'throttle:30,1'])->group(function () {
+    $controller = \App\Http\Controllers\Agent\AgentAdministrationController::class;
+    Route::post('enrollment-tokens', [$controller, 'issue'])->middleware(\App\Http\Middleware\EnsurePermission::class.':stations.enroll');
+    Route::post('stations/{station}/revoke', [$controller, 'revoke'])->middleware(\App\Http\Middleware\EnsurePermission::class.':stations.revoke');
+    Route::put('stations/{station}/configuration', [$controller, 'configure'])->middleware(\App\Http\Middleware\EnsurePermission::class.':stations.configure');
+    Route::post('stations/{station}/commands', [$controller, 'command'])->middleware(\App\Http\Middleware\EnsurePermission::class.':stations.commands');
+});
+
+Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsurePermission::class.':stations.enroll'])->prefix('admin/agent')->name('admin.agent.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Agent\AgentAdministrationController::class, 'index'])->name('index');
+    Route::post('/enrollment-tokens/panel', [\App\Http\Controllers\Agent\AgentAdministrationController::class, 'issuePanel'])->name('enrollment-tokens.panel');
+});

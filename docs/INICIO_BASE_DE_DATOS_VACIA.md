@@ -182,3 +182,11 @@ No ejecutes `migrate:fresh`, `migrate:refresh` ni `db:seed` sin `--class` sobre 
 ### Plataformas asignadas a monitores
 
 El catálogo de plataformas y las cuentas Studio se configuran desde Administración. Un monitor puede asociar o retirar una cuenta existente únicamente de las modelos que tiene asignadas, mediante `studio_accounts.assign_assigned`; no puede crear cuentas, cambiar configuraciones ni consultar credenciales.
+
+## 7. Configurar estaciones VELVET Agent
+
+`php artisan migrate` incorpora las tablas de integración Agent. `DatabaseSeeder` ya llama a `VelvetMasterOperationalPermissionsSeeder`, que registra los permisos `stations.enroll`, `stations.configure`, `stations.revoke` y `stations.commands` para administración. Ningún seeder crea estaciones ni credenciales de dispositivos.
+
+Para habilitar el enrolamiento, configurar `AGENT_MASTER_URL` (HTTPS público) y `AGENT_STUDIO_IDS` (registro explícito de estudios), reconstruir la caché de configuración y activar el scheduler de Laravel. Cada estación debe enrolarse mediante su propio token temporal emitido por la ruta administrativa protegida. No reutilizar contraseñas de usuarios de prueba como tokens de Agent.
+
+Los pasos, rutas, tiempos de caducidad y precisiones del contrato están en [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md).
