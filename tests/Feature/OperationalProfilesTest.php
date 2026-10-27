@@ -11,6 +11,8 @@ use App\Models\OperationalTrainingRecord;
 use App\Models\PlatformCatalog;
 use App\Models\StudioAccount;
 use App\Models\User;
+use App\Models\Agent\AgentStation;
+use App\Models\Agent\AgentWorkSession;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\VelvetMasterOperationalPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -274,6 +276,34 @@ class OperationalProfilesTest extends TestCase
                 ->where('candidate.id', $model->id));
 
         $this->assertNotSame($otherModel->code, $model->code);
+    }
+
+    public function test_model_profile_includes_only_the_authenticated_models_agent_connection(): void
+    {
+        $modelUser = User::factory()->create(['is_active' => true])->assignRole('model');
+        $model = $this->candidate('MODEL', 'ACTIVE', $modelUser);
+        $station = AgentStation::create([
+            'installation_id' => (string) \Illuminate\Support\Str::uuid(),
+            'hostname' => 'mac-modelo',
+            'studio_id' => 'studio-manizales',
+            'credential_hash' => hash('sha256', 'profile-agent-secret'),
+            'abilities' => ['agent:heartbeat'],
+            'configuration' => ['heartbeatSeconds' => 30],
+            'last_seen_at' => now(),
+            'obs_status' => ['processRunning' => true, 'webSocketConnected' => true, 'streaming' => true],
+        ]);
+        AgentWorkSession::create([
+            'id' => (string) \Illuminate\Support\Str::uuid(), 'user_id' => $modelUser->id, 'station_id' => $station->id,
+            'installation_id' => $station->installation_id, 'studio_id' => $station->studio_id,
+            'started_at' => now()->subHour(), 'last_heartbeat_at' => now(), 'status' => 'active',
+            'total_connected_seconds' => 3600, 'total_streaming_seconds' => 1800,
+        ]);
+
+        $this->actingAs($modelUser)->get('/model/profile')
+            ->assertInertia(fn ($page) => $page
+                ->where('agentConnection.status', 'connected')
+                ->where('agentConnection.station.hostname', 'mac-modelo')
+                ->where('agentConnection.session.connectedSeconds', 3600));
     }
 
     private function candidate(string $type, string $status, ?User $user = null): Candidate

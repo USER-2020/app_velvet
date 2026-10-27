@@ -4,6 +4,16 @@ La guía funcional, técnica y de QA para el equipo está disponible en
 [docs/guia-plataforma.md](docs/guia-plataforma.md). Incluye roles, usuarios de
 prueba, flujos de reclutamiento, visitas guiadas, pruebas y CI.
 
+## Documentación técnica y operación
+
+- [Integración VELVET Master ↔ Agent](docs/AGENT_INTEGRATION.md): enrolamiento, credenciales, telemetría, comandos, revocación e idempotencia.
+- [Login OAuth de VELVET Agent](docs/AGENT_OAUTH.md): navegador, PKCE, callback loopback, renovación y revocación.
+- [Contrato OpenAPI de Agent](docs/agent.openapi.json), versión Master 0.2.0.
+- [Permisos operativos](docs/VELVET_MASTER_PERMISSIONS.md).
+- [Despliegue seguro](docs/DESPLIEGUE_PRODUCCION_SEGURO.md).
+- [Inicio desde una base vacía](docs/INICIO_BASE_DE_DATOS_VACIA.md).
+- [Roadmap y pendientes](docs/VELVET_MASTER_ROADMAP.md).
+
 ## Open-source documentation
 
 - [Contributing guide (English)](CONTRIBUTING.md)

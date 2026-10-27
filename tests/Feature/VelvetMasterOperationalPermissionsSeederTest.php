@@ -41,6 +41,7 @@ class VelvetMasterOperationalPermissionsSeederTest extends TestCase
         $monitor = User::factory()->create()->assignRole('monitor');
         $finance = User::factory()->create()->assignRole('finance');
         $recruiter = User::factory()->create()->assignRole('recruiter');
+        $model = User::factory()->create()->assignRole('model');
 
         $this->assertTrue($manager->hasPermissionTo('sessions.manage'));
         $this->assertFalse($manager->hasPermissionTo('studio_accounts.manage'));
@@ -48,6 +49,8 @@ class VelvetMasterOperationalPermissionsSeederTest extends TestCase
         $this->assertTrue($monitor->hasPermissionTo('studio_accounts.assign_assigned'));
         $this->assertFalse($monitor->hasPermissionTo('studio_accounts.manage'));
         $this->assertFalse($monitor->hasPermissionTo('productivity.manage'));
+        $this->assertTrue($model->hasPermissionTo('stations.connect'));
+        $this->assertFalse($model->hasPermissionTo('stations.enroll'));
         $this->assertTrue($finance->hasPermissionTo('integrations.finance_export'));
         $this->assertFalse($finance->hasPermissionTo('platforms.manage'));
         $this->assertFalse($recruiter->hasPermissionTo('platforms.view'));

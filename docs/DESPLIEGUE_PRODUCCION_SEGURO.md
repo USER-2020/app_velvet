@@ -256,3 +256,19 @@ Pruebas de regresión recomendadas antes del despliegue:
 php artisan test --filter='StudioOperationsTest|OperationalProfilesTest'
 npm run build
 ```
+
+## Activación de la integración Agent
+
+La implementación de Master y las instrucciones completas están en [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md); el contrato versionado está en [agent.openapi.json](agent.openapi.json).
+
+1. Configurar `AGENT_MASTER_URL` con la URL HTTPS pública de Master, sin usuario ni contraseña en la URL, y `AGENT_STUDIO_IDS` con los identificadores externos autorizados separados por comas. Sin un estudio válido no se pueden emitir tokens administrativos.
+2. Revisar y aplicar `2026_10_21_000000_create_agent_integration_tables.php` mediante el procedimiento de migraciones de esta guía. Crea tablas nuevas para estaciones, tokens, telemetría, comandos y claves idempotentes.
+3. Ejecutar el seeder aditivo `VelvetMasterOperationalPermissionsSeeder`; no ejecutar seeders demostrativos para habilitar Agent.
+4. Reconstruir la caché de configuración y activar el cron de Laravel: `php artisan schedule:run` cada minuto. La tarea `agent:maintain` depende de una base y un almacén de caché operativos, también para el bloqueo `withoutOverlapping`.
+5. Confirmar el proxy de confianza y la detección HTTPS antes de enrolar. Las APIs rechazan HTTP; las rutas administrativas además exigen sesión web y CSRF.
+
+Conservar `APP_KEY`: cifra las respuestas temporales recuperables de enrolamiento y emisión administrativa. La revocación invalida la credencial de la estación inmediatamente; los replays no permiten restaurarla. El scheduler borra las respuestas cifradas vencidas, pero conserva las claves/hash que impiden repetir efectos. No purgar esos registros sin acordar retención y reconciliación con Agent.
+
+Verificación en staging: token válido/consumido/expirado, recuperación de una respuesta perdida, dos estaciones aisladas, revocación antes de replay, telemetría con métricas null, configuración por estación y recuperación tras 429/5xx. Ejecutar `php artisan test --compact tests/Feature/AgentIntegrationTest.php` en el entorno aislado de pruebas. Las pruebas SQLite no sustituyen una comprobación de concurrencia con MySQL/InnoDB ni una conexión real con Agent Windows.
+
+La entrega de comandos por Reverb/WSS continúa pendiente. Una reserva `RefreshStatus` persistida no acredita ejecución en la estación.

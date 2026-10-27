@@ -75,3 +75,6 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+      - name: Test frontend regressions
+        run: node --test tests/js/*.test.mjs

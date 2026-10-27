@@ -1,4 +1,4 @@
-export const TOUR_VERSION = 4;
+export const TOUR_VERSION = 5;
 
 const hasPermission = (permission) => (can) => !permission || can(permission);
 
@@ -163,6 +163,34 @@ export const productTours = {
             { element: '[role="switch"]', popover: { title: 'Activar o desactivar', description: 'Al desactivar esta opción se ocultan los recorridos automáticos y el botón para repetirlos. Los avances de cada usuario se conservan.' } },
         ],
     },
+    documentation: {
+        available: hasPermission('super_admin'),
+        steps: [
+            { element: 'a[href="/admin/documentation"]', popover: { title: 'Centro de documentación', description: 'Consulta en un solo lugar las APIs, manuales y referencias técnicas de Velvet Master.' } },
+            { element: '[data-tour="documentation-references"]', popover: { title: 'Documentación oficial', description: 'Estas referencias se mantienen vinculadas a los documentos versionados del proyecto, incluido el contrato OpenAPI del Agent.' } },
+            { element: '[data-tour="documentation-swagger"]', popover: { title: 'Swagger / OpenAPI', description: 'Explora las APIs creadas para conectar Agent con Velvet Master: métodos, rutas, parámetros, respuestas y modelos de datos.' } },
+            { element: '[data-tour="documentation-agent-sessions"]', popover: { title: 'Sesiones y métricas', description: 'Consulta cómo Master separa el uptime técnico de la estación del tiempo de trabajo de cada usuario y registra OBS.' } },
+            { element: '[data-tour="documentation-modules"]', popover: { title: 'Manual de módulos', description: 'Usa este catálogo como mapa funcional de Velvet Master y entra directamente al módulo que quieras revisar.' } },
+            { element: '[data-tour="documentation-upload"]', popover: { title: 'Anexos y conocimiento interno', description: 'Carga archivos o escribe una nota para conservar documentación relevante junto al manual de la plataforma.' } },
+        ],
+    },
+    agent: {
+        available: hasPermission('stations.enroll'),
+        steps: [
+            { element: 'a[href="/admin/agent"]', popover: { title: 'VELVET Agent', description: 'Administra las estaciones que se conectan con Velvet Master y revisa su estado de conexión.' } },
+            { element: '[data-tour="agent-overview"]', popover: { title: 'Estado de la conexión', description: 'Consulta cuántas estaciones están conectadas, offline o revocadas y verifica la URL pública de Master.' } },
+            { element: '[data-tour="agent-token"]', popover: { title: 'Tokens de enrolamiento', description: 'Genera o regenera un token temporal para registrar una estación nueva. El token se muestra una sola vez y caduca automáticamente.' } },
+            { element: '[data-tour="agent-stations"]', popover: { title: 'Estaciones conectadas', description: 'Cada estación muestra estudio, versión, última actividad, configuración y credenciales disponibles.' } },
+        ],
+    },
+    'work-sessions': {
+        available: hasPermission('metrics.view_own') || hasPermission('models.view_metrics') || hasPermission('dashboard.view'),
+        steps: [
+            { element: '[data-tour="work-sessions-header"]', popover: { title: 'Sesiones de trabajo', description: 'Consulta el tiempo de trabajo autenticado separado del uptime técnico de la estación.' } },
+            { element: '[data-tour="work-sessions-summary"]', popover: { title: 'Resumen de tiempos', description: 'Revisa sesiones activas, tiempo conectado y tiempo transmitiendo calculados por Master.' } },
+            { element: '[data-tour="work-sessions-table"]', popover: { title: 'Detalle de sesiones', description: 'La modelo ve sus sesiones, el monitor sus modelos asignadas y administración todas.' } },
+        ],
+    },
     users: {
         available: hasPermission('users.view'),
         steps: [
@@ -223,6 +251,7 @@ export const productTours = {
         steps: [
             { element: 'a[href="/model/dashboard"]', popover: { title: 'Tu panel', description: 'Consulta tu pipeline y los indicadores asociados solo a tu cuenta.' } },
             { element: '[data-tour="model-statistics"]', popover: { title: 'Indicadores propios', description: 'Estas estadísticas se calculan solo con tus sesiones, turnos y métricas registradas.' } },
+            { element: '[data-tour="model-agent-live"]', popover: { title: 'Estado en tiempo real', description: 'Este bloque se actualiza con los heartbeats de tu VELVET Agent y muestra el estado de tu estación y OBS.' } },
             { element: '[data-tour="model-pipeline"]', popover: { title: 'Pipeline personal', description: 'Compara tu actividad y producción por semana. Este resumen nunca incluye datos de otras modelos.' } },
             { element: 'a[href="/model/rooms"]', popover: { title: 'Gestiona tus rooms', description: 'La agenda de rooms está separada del panel para que programes tu uso sin modificar las salas físicas.' } },
         ],
@@ -240,6 +269,7 @@ export const productTours = {
         steps: [
             { element: 'a[href="/model/profile"]', popover: { title: 'Mi perfil operativo', description: 'Aquí consultas únicamente la información vinculada a tu propia cuenta.' } },
             { element: '[data-tour="model-profile"]', popover: { title: 'Estado operativo', description: 'Revisa tu incorporación, monitor asignado y datos personales.' } },
+            { element: '[data-tour="model-agent-connection"]', popover: { title: 'Conexión VELVET Agent', description: 'Consulta únicamente la estación asociada a tu cuenta, el estado de OBS y el tiempo conectado o transmitiendo.' } },
             { element: '[data-tour="model-documents"]', popover: { title: 'Documentos privados', description: 'Puedes ver y descargar solo los documentos de tu expediente.' } },
             { element: '[data-tour="model-platforms"]', popover: { title: 'Plataformas', description: 'Se muestran identificadores y estados autorizados; las credenciales nunca se exponen.' } },
         ],
@@ -268,6 +298,9 @@ export function tourKeyForPath(url) {
     if (path.startsWith('/admin/workflows')) return 'workflows';
     if (path.startsWith('/admin/training-data')) return 'training-data';
     if (path.startsWith('/admin/guided-tours')) return 'guided-tours';
+    if (path.startsWith('/admin/documentation')) return 'documentation';
+    if (path.startsWith('/admin/agent')) return 'agent';
+    if (path.endsWith('/work-sessions')) return 'work-sessions';
     if (path.startsWith('/admin/users')) return 'users';
     if (path.startsWith('/admin/access')) return 'roles';
     if (path.startsWith('/admin/notifications')) return 'notifications';
