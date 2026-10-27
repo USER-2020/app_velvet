@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { Toaster, toast } from 'react-hot-toast';
 import { useEffect, useState } from 'react';
 import ProductTour from '@/Components/ProductTour';
+import { initializeMetaPixel, trackMetaPageView } from '@/lib/metaPixel';
 
 function renderInertiaPage({ Component, props, key }) {
     const child = <Component key={key} {...props} />;
@@ -208,7 +209,7 @@ function GlobalCrudToasts() {
 function CookieConsentBanner() {
     const [visible, setVisible] = useState(false);
     const [preferencesOpen, setPreferencesOpen] = useState(false);
-    const [preferences, setPreferences] = useState({ essential: true, analytics: false, personalization: false });
+    const [preferences, setPreferences] = useState({ essential: true, analytics: false, marketing: false, personalization: false });
 
     useEffect(() => {
         const accepted = () => setVisible(false);
@@ -223,21 +224,20 @@ function CookieConsentBanner() {
 
     const save = async (nextPreferences) => {
         window.localStorage.setItem('velvet-cookie-consent', 'accepted');
+        window.localStorage.setItem('velvet-cookie-preferences', JSON.stringify(nextPreferences));
         setVisible(false);
         setPreferencesOpen(false);
         await window.axios.post('/cookie-consent', { preferences: nextPreferences });
+        window.dispatchEvent(new Event('velvet-cookie-preferences-updated'));
     };
 
-    const acceptAll = () => save({ essential: true, analytics: true, personalization: true });
-    const rejectOptional = () => save({ essential: true, analytics: false, personalization: false });
-
     if (!visible) return null;
-    return <><div className="cookie-consent-backdrop" aria-hidden="true" /><aside className="cookie-consent-banner" role="dialog" aria-modal="true" aria-label="Consentimiento de cookies"><div><p className="cookie-consent-banner__title">Tu privacidad importa</p><p className="cookie-consent-banner__copy">Configura tus preferencias para continuar. Las cookies esenciales permiten guardar tu aplicación.</p></div><div className="cookie-consent-banner__actions"><button type="button" onClick={() => window.dispatchEvent(new Event('velvet-open-cookie-preferences'))} className="cookie-consent-banner__link">Configurar cookies</button><button type="button" onClick={() => save({ essential: true, analytics: true, personalization: true })} className="velvet-button cookie-consent-banner__button">Aceptar todas</button></div></aside></>;
+    return <><div className="cookie-consent-backdrop" aria-hidden="true" /><aside className="cookie-consent-banner" role="dialog" aria-modal="true" aria-label="Consentimiento de cookies"><div><p className="cookie-consent-banner__title">Tu privacidad importa</p><p className="cookie-consent-banner__copy">Configura tus preferencias para continuar. Las cookies esenciales permiten guardar tu aplicación.</p></div><div className="cookie-consent-banner__actions"><button type="button" onClick={() => window.dispatchEvent(new Event('velvet-open-cookie-preferences'))} className="cookie-consent-banner__link">Configurar cookies</button><button type="button" onClick={() => save({ essential: true, analytics: true, marketing: true, personalization: true })} className="velvet-button cookie-consent-banner__button">Aceptar todas</button></div></aside></>;
 }
 
 function CookiePreferencesEntry() {
     const [open, setOpen] = useState(false);
-    const [preferences, setPreferences] = useState({ essential: true, analytics: false, personalization: false });
+    const [preferences, setPreferences] = useState({ essential: true, analytics: false, marketing: false, personalization: false });
     const [publicRoute, setPublicRoute] = useState(() => isPublicPath(window.location.pathname));
 
     useEffect(() => {
@@ -251,11 +251,41 @@ function CookiePreferencesEntry() {
     if (!publicRoute) return null;
     const save = async (nextPreferences) => {
         window.localStorage.setItem('velvet-cookie-consent', 'accepted');
+        window.localStorage.setItem('velvet-cookie-preferences', JSON.stringify(nextPreferences));
         setOpen(false);
         await window.axios.post('/cookie-consent', { preferences: nextPreferences });
+        window.dispatchEvent(new Event('velvet-cookie-preferences-updated'));
     };
 
-    return <>{!open && <button type="button" onClick={() => setOpen(true)} className="cookie-preferences-entry">Configurar cookies</button>}{open && <div className="cookie-consent-modal__backdrop" role="presentation"><section className="cookie-consent-modal" role="dialog" aria-modal="true" aria-labelledby="cookie-preferences-title"><div className="flex items-start justify-between gap-4"><div><p id="cookie-preferences-title" className="cookie-consent-modal__title">Personaliza tus cookies</p><p className="cookie-consent-modal__copy">Las cookies esenciales permiten guardar tu aplicación. Las demás son opcionales.</p></div><button type="button" onClick={() => setOpen(false)} className="cookie-consent-modal__close" aria-label="Cerrar">×</button></div><div className="cookie-consent-modal__options"><label className="cookie-consent-modal__option"><span><strong>Esenciales</strong><small>Seguridad, sesión y recuperación del formulario.</small></span><input type="checkbox" checked disabled /></label><label className="cookie-consent-modal__option"><span><strong>Analítica</strong><small>Ayuda a entender el uso general del sitio.</small></span><input type="checkbox" checked={preferences.analytics} onChange={(event) => setPreferences({ ...preferences, analytics: event.target.checked })} /></label><label className="cookie-consent-modal__option"><span><strong>Personalización</strong><small>Recuerda preferencias para mejorar la experiencia.</small></span><input type="checkbox" checked={preferences.personalization} onChange={(event) => setPreferences({ ...preferences, personalization: event.target.checked })} /></label></div><div className="cookie-consent-modal__actions"><button type="button" onClick={() => save(preferences)} className="velvet-button">Guardar preferencias</button></div></section></div>}</>;
+    return <>{!open && <button type="button" onClick={() => setOpen(true)} className="cookie-preferences-entry">Configurar cookies</button>}{open && <div className="cookie-consent-modal__backdrop" role="presentation"><section className="cookie-consent-modal" role="dialog" aria-modal="true" aria-labelledby="cookie-preferences-title"><div className="flex items-start justify-between gap-4"><div><p id="cookie-preferences-title" className="cookie-consent-modal__title">Personaliza tus cookies</p><p className="cookie-consent-modal__copy">Las cookies esenciales permiten guardar tu aplicación. Las demás son opcionales.</p></div><button type="button" onClick={() => setOpen(false)} className="cookie-consent-modal__close" aria-label="Cerrar">×</button></div><div className="cookie-consent-modal__options"><label className="cookie-consent-modal__option"><span><strong>Esenciales</strong><small>Seguridad, sesión y recuperación del formulario.</small></span><input type="checkbox" checked disabled /></label><label className="cookie-consent-modal__option"><span><strong>Analítica</strong><small>Ayuda a entender el uso general del sitio.</small></span><input type="checkbox" checked={preferences.analytics} onChange={(event) => setPreferences({ ...preferences, analytics: event.target.checked })} /></label><label className="cookie-consent-modal__option"><span><strong>Marketing</strong><small>Publicidad y medición de campañas, incluido Meta Pixel.</small></span><input type="checkbox" checked={preferences.marketing} onChange={(event) => setPreferences({ ...preferences, marketing: event.target.checked })} /></label><label className="cookie-consent-modal__option"><span><strong>Personalización</strong><small>Recuerda preferencias para mejorar la experiencia.</small></span><input type="checkbox" checked={preferences.personalization} onChange={(event) => setPreferences({ ...preferences, personalization: event.target.checked })} /></label></div><div className="cookie-consent-modal__actions"><button type="button" onClick={() => save(preferences)} className="velvet-button">Guardar preferencias</button></div></section></div>}</>;
+}
+
+function MetaPixel() {
+    useEffect(() => {
+        const hasMarketingConsent = () => {
+            try {
+                return JSON.parse(window.localStorage.getItem('velvet-cookie-preferences') || '{}').marketing === true;
+            } catch {
+                return false;
+            }
+        };
+
+        const enable = () => {
+            if (!isPublicPath(window.location.pathname) || !hasMarketingConsent()) return;
+            if (initializeMetaPixel()) trackMetaPageView();
+        };
+
+        window.addEventListener('velvet-cookie-preferences-updated', enable);
+        enable();
+        const removeFinishListener = router.on('finish', (event) => {
+            const visit = event.detail?.visit;
+            if (String(visit?.method || 'get').toLowerCase() === 'get') enable();
+        });
+
+        return () => { window.removeEventListener('velvet-cookie-preferences-updated', enable); removeFinishListener(); };
+    }, []);
+
+    return null;
 }
 
 createInertiaApp({
@@ -268,7 +298,7 @@ createInertiaApp({
     setup({ el, App, props }) {
         const root = createRoot(el);
 
-        root.render(<><App {...props}>{renderInertiaPage}</App><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /></>);
+        root.render(<><App {...props}>{renderInertiaPage}</App><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /><MetaPixel /></>);
     },
     progress: {
         color: '#4B5563',
