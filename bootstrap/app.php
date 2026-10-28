@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: env('TRUSTED_PROXIES', '127.0.0.1'));
 
         $middleware->prependToPriorityList(\Illuminate\Routing\Middleware\ThrottleRequests::class, \App\Http\Middleware\Agent\AgentTransport::class);
+        $middleware->prependToPriorityList(\App\Http\Middleware\PreserveAgentOAuthIntent::class, \Illuminate\Auth\Middleware\Authenticate::class);
 
         $middleware->trimStrings(except: [fn ($request) => $request->is('api/agent/*')]);
         $middleware->convertEmptyStringsToNull(except: [fn ($request) => $request->is('api/agent/*')]);
@@ -32,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             EnsureActiveUser::class,
             AddSecurityHeaders::class,
+            \App\Http\Middleware\PreserveAgentOAuthIntent::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
