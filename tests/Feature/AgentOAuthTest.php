@@ -92,6 +92,33 @@ class AgentOAuthTest extends TestCase
         $this->assertSame('state-login', $callback['state']);
     }
 
+    public function test_login_uses_preserved_agent_request_when_laravel_intended_url_is_missing(): void
+    {
+        $user = User::factory()->create()->assignRole('admin');
+        $installation = (string) Str::uuid();
+        $query = http_build_query([
+            'client_id' => 'velvet-agent', 'redirect_uri' => 'http://127.0.0.1:43131/oauth/callback',
+            'response_type' => 'code', 'installation_id' => $installation, 'hostname' => 'station-fallback',
+            'studio_id' => 'studio-bogota', 'code_challenge' => str_repeat('b', 43),
+            'code_challenge_method' => 'S256', 'state' => 'state-fallback',
+        ]);
+
+        $this->get('/oauth/agent/authorize?'.$query)->assertRedirect(route('login'));
+        $this->assertNotNull($this->app['session']->get('agent.oauth.pending_authorize'));
+        $this->app['session']->forget('url.intended');
+        $response = $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'password',
+        ]);
+
+        $response->assertRedirect();
+        $location = parse_url($response->headers->get('Location'));
+        parse_str($location['query'] ?? '', $redirectQuery);
+        $this->assertSame('/oauth/agent/authorize', $location['path'] ?? null);
+        $this->assertSame($installation, $redirectQuery['installation_id'] ?? null);
+        $this->assertSame('state-fallback', $redirectQuery['state'] ?? null);
+    }
+
     public function test_model_can_connect_to_an_existing_station_but_cannot_enroll_one(): void
     {
         $model = User::factory()->create()->assignRole('model');

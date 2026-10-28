@@ -60,6 +60,8 @@ class AgentOAuthController extends Controller
             'expires_at' => now()->addMinutes(config('agent.oauth.authorization_code_minutes')),
         ]);
 
+        $request->session()->forget('agent.oauth.pending_authorize');
+
         return redirect()->away($this->withQuery($data['redirect_uri'], [
             'code' => $code,
             ...(! empty($data['state']) ? ['state' => $data['state']] : []),

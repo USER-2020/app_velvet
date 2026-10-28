@@ -39,11 +39,11 @@ class AuthenticatedSessionController extends Controller
         // aceptamos esta ruta local del propio Master para no convertir la
         // URL intended en un redirect abierto.
         $intended = $request->session()->pull('url.intended');
-        $intendedParts = is_string($intended) ? parse_url($intended) : false;
-        $intendedHost = $intendedParts['host'] ?? null;
-        if (($intendedParts['path'] ?? null) === '/oauth/agent/authorize'
-            && ($intendedHost === null || hash_equals($request->getHost(), $intendedHost))) {
-            return redirect()->to($intended);
+        $pendingAgentAuthorize = $request->session()->pull('agent.oauth.pending_authorize');
+        foreach ([$intended, $pendingAgentAuthorize] as $candidate) {
+            if ($this->isAgentAuthorizeUrl($candidate, $request)) {
+                return redirect()->to($candidate);
+            }
         }
 
         // El portal inicial debe depender del rol actual. No usamos la URL
@@ -55,6 +55,19 @@ class AuthenticatedSessionController extends Controller
             : ($user->hasRole('monitor') ? 'monitor.dashboard' : 'admin.recruitment');
 
         return redirect()->to(route($destination, absolute: false));
+    }
+
+    private function isAgentAuthorizeUrl(mixed $url, Request $request): bool
+    {
+        if (! is_string($url) || $url === '') {
+            return false;
+        }
+
+        $parts = parse_url($url);
+        $host = $parts['host'] ?? null;
+
+        return ($parts['path'] ?? null) === '/oauth/agent/authorize'
+            && ($host === null || hash_equals($request->getHost(), $host));
     }
 
     /**
