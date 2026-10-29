@@ -47,6 +47,7 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
                 'agentToken' => fn () => $request->session()->get('agentToken'),
+                'launcherEnrollmentCode' => fn () => $request->session()->get('launcherEnrollmentCode'),
             ],
             'auth' => [
                 'user' => $user ? array_merge($user->toArray(), [

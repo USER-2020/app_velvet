@@ -33,6 +33,7 @@ class TourProgressController extends Controller
         'guided-tours',
         'documentation',
         'agent',
+        'station-manager',
         'users',
         'roles',
         'notifications',

@@ -178,9 +178,17 @@ export const productTours = {
         available: hasPermission('stations.enroll'),
         steps: [
             { element: 'a[href="/admin/agent"]', popover: { title: 'VELVET Agent', description: 'Administra las estaciones que se conectan con Velvet Master y revisa su estado de conexión.' } },
-            { element: '[data-tour="agent-overview"]', popover: { title: 'Estado de la conexión', description: 'Consulta cuántas estaciones están conectadas, offline o revocadas y verifica la URL pública de Master.' } },
-            { element: '[data-tour="agent-token"]', popover: { title: 'Tokens de enrolamiento', description: 'Genera o regenera un token temporal para registrar una estación nueva. El token se muestra una sola vez y caduca automáticamente.' } },
-            { element: '[data-tour="agent-stations"]', popover: { title: 'Estaciones conectadas', description: 'Cada estación muestra estudio, versión, última actividad, configuración y credenciales disponibles.' } },
+            { element: '[data-tour="agent-construction"]', popover: { title: 'Módulo en construcción', description: 'El enrolamiento y la supervisión se habilitarán después de completar la auditoría de Station Manager. Así evitamos registrar estaciones con un flujo incompleto.' } },
+        ],
+    },
+    'station-manager': {
+        available: hasPermission('stations.assign'),
+        steps: [
+            { element: 'a[href="/admin/station-manager"]', popover: { title: 'Station Manager', description: 'Este módulo coordinará las asociaciones operativas entre estaciones, rooms, modelos y monitores.' } },
+            { element: '[data-tour="station-manager-enrollment"]', popover: { title: 'Enrolamiento Launcher', description: 'Genera un código temporal para registrar una estación desde VELVET Launcher. La credencial queda separada de las asignaciones operativas.' } },
+            { element: '[data-tour="station-manager-assignment"]', popover: { title: 'Asignaciones operativas', description: 'Asocia la estación Launcher con una room, una modelo y un monitor respetando permisos y horarios.' } },
+            { element: '[data-tour="station-manager-stations"]', popover: { title: 'Control de estaciones', description: 'Master conserva la asignación activa y el historial operativo de cada estación Launcher.' } },
+            { element: '[data-tour="station-manager-enrollment-history"]', popover: { title: 'Historial de enrolamientos', description: 'Consulta qué códigos se generaron, para qué estudio, quién los creó y cuándo vencieron. El código secreto nunca se almacena en texto visible.' } },
         ],
     },
     'work-sessions': {
@@ -300,6 +308,7 @@ export function tourKeyForPath(url) {
     if (path.startsWith('/admin/guided-tours')) return 'guided-tours';
     if (path.startsWith('/admin/documentation')) return 'documentation';
     if (path.startsWith('/admin/agent')) return 'agent';
+    if (path.startsWith('/admin/station-manager')) return 'station-manager';
     if (path.endsWith('/work-sessions')) return 'work-sessions';
     if (path.startsWith('/admin/users')) return 'users';
     if (path.startsWith('/admin/access')) return 'roles';

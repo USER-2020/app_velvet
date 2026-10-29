@@ -21,6 +21,7 @@ class VelvetMasterOperationalPermissionsSeeder extends Seeder
             ['name' => 'Revocar estaciones Agent', 'slug' => 'stations.revoke', 'group' => 'VELVET Agent'],
             ['name' => 'Configurar estaciones Agent', 'slug' => 'stations.configure', 'group' => 'VELVET Agent'],
             ['name' => 'Solicitar estado de estaciones Agent', 'slug' => 'stations.commands', 'group' => 'VELVET Agent'],
+            ['name' => 'Asignar estaciones Agent', 'slug' => 'stations.assign', 'group' => 'VELVET Agent'],
             ['name' => 'Gestionar asistencia operativa', 'slug' => 'attendance.manage', 'group' => 'Asistencia'],
             ['name' => 'Gestionar checklists operativos de salas', 'slug' => 'room_checklists.manage', 'group' => 'Habitaciones'],
             ['name' => 'Ver plataformas webcam', 'slug' => 'platforms.view', 'group' => 'Plataformas webcam'],
