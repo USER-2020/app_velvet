@@ -1,5 +1,4 @@
-import { Head, Link, router, usePage } from '@inertiajs/react';
-import { useEffect } from 'react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { FiActivity, FiCalendar, FiClock, FiGrid, FiTrendingUp, FiUser, FiUserCheck, FiZap } from 'react-icons/fi';
 import Layout from '@/Pages/Admin/Recruitment/Layout';
 
@@ -12,10 +11,6 @@ function Stat({ icon, value, label, detail }) {
 
 export default function Dashboard({ candidate, statistics = {}, agentStatistics = {}, agentConnection = {}, activityTrend = [] }) {
     const { operationalAccess } = usePage().props;
-    useEffect(() => {
-        const timer = window.setInterval(() => router.reload({ only: ['agentStatistics', 'agentConnection'], preserveScroll: true, preserveState: true }), 10000);
-        return () => window.clearInterval(timer);
-    }, []);
     const maxSessions = Math.max(...activityTrend.map((item) => Number(item.sessions || 0)), 1);
     const maxTokens = Math.max(...activityTrend.map((item) => Number(item.tokens || 0)), 1);
 

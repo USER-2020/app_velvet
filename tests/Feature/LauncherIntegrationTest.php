@@ -6,6 +6,7 @@ use App\Models\LauncherEnrollmentToken;
 use App\Models\LauncherStation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -15,6 +16,9 @@ class LauncherIntegrationTest extends TestCase
 
     public function test_launcher_can_enroll_read_station_and_send_bearer_heartbeat(): void
     {
+        config(['services.ably.api_key' => 'test-key:test-secret']);
+        Http::fake(['https://rest.ably.io/*' => Http::response([], 201)]);
+
         $code = Str::random(48);
         LauncherEnrollmentToken::create([
             'token_hash' => hash('sha256', $code),
@@ -48,6 +52,8 @@ class LauncherIntegrationTest extends TestCase
 
         $this->assertNotNull(LauncherStation::firstOrFail()->fresh()->last_seen_at);
         $this->assertDatabaseCount('launcher_heartbeats', 1);
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/channels/admin-station-manager/messages')
+            && $request['name'] === 'station-manager.station.enrolled');
     }
 
     public function test_launcher_rejects_a_credential_sent_in_the_json_body(): void

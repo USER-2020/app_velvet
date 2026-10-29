@@ -1,8 +1,10 @@
-import { Head, useForm, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { useCallback, useEffect, useState } from 'react';
 import { FiCheckCircle, FiInfo, FiLink, FiShield, FiUsers, FiXCircle } from 'react-icons/fi';
 import VelvetDateTimeField from '@/Components/VelvetDateTimeField';
 import Layout from '../Recruitment/Layout';
+import { subscribeToRealtime } from '@/lib/ably';
+import { useRealtimeFallback } from '@/lib/useRealtimeFallback';
 
 const dateLabel = (value) => value ? new Intl.DateTimeFormat('es-CO', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Sin fecha';
 const tokenStatus = (token) => token.usedAt ? ['Usado', 'text-[#9af2cb]'] : new Date(token.expiresAt) <= new Date() ? ['Vencido', 'text-[#ffb1bd]'] : ['Disponible', 'text-[#f2d394]'];
@@ -10,9 +12,16 @@ const tokenStatus = (token) => token.usedAt ? ['Usado', 'text-[#9af2cb]'] : new 
 export default function Index({ stations = [], rooms = [], models = [], monitors = [], studios = [], enrollmentCodes = [] }) {
     const page = usePage();
     const [copiedCode, setCopiedCode] = useState(false);
+    const [realtimeUnavailable, setRealtimeUnavailable] = useState(!import.meta.env.VITE_ABLY_ENABLED);
     const form = useForm({ station_id: '', room_id: '', model_candidate_id: '', monitor_candidate_id: '', starts_at: '', ends_at: '', notes: '' });
     const codeForm = useForm({ studio_id: studios[0] || '' });
     const launcherEnrollmentCode = page.props.flash?.launcherEnrollmentCode;
+    const reload = useCallback(() => router.reload({ only: ['stations', 'enrollmentCodes'], preserveScroll: true, preserveState: true }), []);
+
+    useEffect(() => subscribeToRealtime((_data, eventName) => {
+        if (eventName?.startsWith('station-manager.')) reload();
+    }, null, setRealtimeUnavailable), [reload]);
+    useRealtimeFallback(reload, realtimeUnavailable);
 
     const submit = (event) => {
         event.preventDefault();
