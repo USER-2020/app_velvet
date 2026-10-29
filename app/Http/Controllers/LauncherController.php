@@ -9,6 +9,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
+use App\Services\RealtimePublisher;
+
 class LauncherController extends Controller
 {
     public function enroll(Request $request)
@@ -21,7 +23,7 @@ class LauncherController extends Controller
             'installationId' => ['nullable', 'uuid'],
         ]);
 
-        return DB::transaction(function () use ($data) {
+        $registration = DB::transaction(function () use ($data) {
             $token = LauncherEnrollmentToken::where('token_hash', hash('sha256', $data['code']))->lockForUpdate()->first();
             abort_unless($token && ! $token->used_at && $token->expires_at->isFuture(), 401, 'Invalid launcher enrollment code.');
 
@@ -44,7 +46,7 @@ class LauncherController extends Controller
             $station ? $station->update($attributes) : $station = LauncherStation::create([...$attributes, 'installation_id' => $installationId]);
             $token->update(['used_at' => now()]);
 
-            return response()->json([
+            return [
                 'deviceId' => (string) $station->id,
                 'deviceCredential' => $credential,
                 'computerName' => $station->hostname,
@@ -52,8 +54,27 @@ class LauncherController extends Controller
                 'launcherVersion' => $station->version,
                 'roomName' => $station->room?->name,
                 'installationId' => $station->installation_id,
-            ]);
+                'station' => [
+                    'id' => $station->id,
+                    'hostname' => $station->hostname,
+                    'installationId' => $station->installation_id,
+                    'studioId' => $station->studio_id,
+                    'version' => $station->version,
+                    'revokedAt' => null,
+                ],
+            ];
         });
+
+        app(RealtimePublisher::class)->publish('station-manager.station.enrolled', [
+            'station' => $registration['station'],
+            'notification' => [
+                'title' => 'Estación enrolada',
+                'description' => "La estación {$registration['station']['hostname']} se conectó a Master.",
+            ],
+            'notification_roles' => ['admin', 'operations_director'],
+        ]);
+
+        return response()->json(collect($registration)->except('station')->all());
     }
 
     public function station(Request $request)

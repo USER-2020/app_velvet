@@ -78,6 +78,7 @@ class RealtimePublisher
     {
         if (str_starts_with($event, 'room.')) return config('services.ably.channels.rooms');
         if (str_starts_with($event, 'operation.')) return config('services.ably.channels.rooms');
+        if (str_starts_with($event, 'station-manager.')) return config('services.ably.channels.station_manager');
         if (str_starts_with($event, 'interview.')) return config('services.ably.channels.interviews');
         if (in_array($event, ['candidate.identity_updated', 'candidate.prequalification_sent', 'candidate.prequalification_completed'], true)) {
             return config('services.ably.channels.onboarding');

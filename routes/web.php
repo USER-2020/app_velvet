@@ -151,8 +151,8 @@ Route::middleware('auth')->group(function () {
         Route::patch('/leads/{lead}/status', [RecruitmentController::class, 'updateLeadStatus'])->middleware('permission:leads.manage')->name('leads.status.update');
         Route::post('/leads/{lead}/discard', [RecruitmentController::class, 'discardLead'])->middleware('permission:leads.manage')->name('leads.discard');
         Route::post('/leads/{lead}/convert', [RecruitmentController::class, 'convert'])->middleware('permission:candidates.convert')->name('leads.convert');
-        Route::post('/ably/token', [RecruitmentController::class, 'ablyToken'])->middleware('permission:leads.view')->name('ably.token');
-        Route::get('/ably/token', [RecruitmentController::class, 'ablyToken'])->middleware('permission:leads.view')->name('ably.token.get');
+        Route::post('/ably/token', [RecruitmentController::class, 'ablyToken'])->name('ably.token');
+        Route::get('/ably/token', [RecruitmentController::class, 'ablyToken'])->name('ably.token.get');
         Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
         Route::get('/notifications/history', [NotificationController::class, 'history'])->name('notifications.history');
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
