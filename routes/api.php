@@ -6,6 +6,9 @@ use App\Http\Controllers\Agent\AgentSessionController;
 use App\Http\Middleware\Agent\AgentTransport;
 use App\Http\Middleware\Agent\AuthenticateAgent;
 use App\Http\Middleware\Agent\AuthenticateAgentOAuth;
+use App\Http\Controllers\LauncherController;
+use App\Http\Middleware\AuthenticateLauncher;
+use App\Http\Middleware\LauncherTransport;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('agent')->middleware([AgentTransport::class, 'throttle:agent-ip'])->group(function () {
@@ -26,4 +29,12 @@ Route::prefix('agent')->middleware([AgentTransport::class, 'throttle:agent-ip'])
         Route::post($path, [AgentController::class, $action])->middleware([AuthenticateAgent::class.':'.$ability]);
     }
     Route::get('configuration', [AgentController::class, 'configuration'])->middleware([AuthenticateAgent::class.':configuration']);
+});
+
+Route::prefix('launcher')->middleware([LauncherTransport::class, 'throttle:agent-ip'])->group(function () {
+    Route::post('enrollment', [LauncherController::class, 'enroll'])->middleware('throttle:agent-enroll');
+    Route::middleware(AuthenticateLauncher::class)->group(function () {
+        Route::get('station', [LauncherController::class, 'station']);
+        Route::post('heartbeat', [LauncherController::class, 'heartbeat']);
+    });
 });

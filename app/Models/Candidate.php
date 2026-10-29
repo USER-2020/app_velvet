@@ -85,4 +85,14 @@ class Candidate extends Model
             ->whereNull('ended_at')
             ->latestOfMany('assigned_at');
     }
+
+    public function stationAssignmentsAsModel()
+    {
+        return $this->hasMany(StationAssignment::class, 'model_candidate_id');
+    }
+
+    public function stationAssignmentsAsMonitor()
+    {
+        return $this->hasMany(StationAssignment::class, 'monitor_candidate_id');
+    }
 }

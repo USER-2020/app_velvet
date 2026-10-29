@@ -1,6 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
-import { FiBell, FiBookOpen, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiCompass, FiDatabase, FiFileText, FiGrid, FiHome, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
+import { FiBell, FiBookOpen, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiCompass, FiDatabase, FiFileText, FiGrid, FiHome, FiLink, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
 import BrandMark from '@/Components/BrandMark';
 import { useAuthorization } from '@/lib/authorization';
 import toast from 'react-hot-toast';
@@ -20,7 +20,8 @@ const sections = [
     { label: 'Reclutamiento', items: [['Leads', '/admin/leads', FiUsers], ['Candidatos', '/admin/candidates', FiUserCheck], ['Entrevistas', '/admin/interviews', FiCalendar], ['Contratación', '/admin/contracting', FiBriefcase], ['Calendario', '/admin/calendar', FiCalendar], ['Pipeline', '/admin/recruitment', FiGrid]] },
     { label: 'Onboarding', items: [['Procesos', '/admin/processes', FiClipboard], ['Validaciones', '/admin/validations', FiFileText], ['Documentos', '/admin/documents', FiFileText]] },
     { label: 'Personas', items: [['Modelos', '/admin/candidates?type=MODEL', FiUsers], ['Monitores', '/admin/candidates?type=MONITOR', FiBriefcase]] },
-    { label: 'Operación', items: [['Operación diaria', '/admin/operations', FiClipboard], ['Sesiones', '/admin/work-sessions', FiCalendar], ['Plataformas', '/admin/platforms', FiDatabase], ['VELVET Agent', '/admin/agent', FiDatabase], ['Administración', '/admin/administration', FiBriefcase], ['Rooms', '/admin/rooms', FiHome]] },
+    { label: 'Operación', items: [['Operación diaria', '/admin/operations', FiClipboard], ['Sesiones', '/admin/work-sessions', FiCalendar], ['Station Manager', '/admin/station-manager', FiLink], ['Plataformas', '/admin/platforms', FiDatabase], ['Administración', '/admin/administration', FiBriefcase], ['Rooms', '/admin/rooms', FiHome]] },
+    { label: 'Integraciones', items: [['VELVET Agent', '/admin/agent', FiDatabase]] },
     { label: 'Configuración', items: [['Documentación', '/admin/documentation', FiBookOpen], ['Workflows', '/admin/workflows', FiSettings], ['Datos de prueba', '/admin/training-data', FiDatabase], ['Usuarios', '/admin/users', FiUsers], ['Roles y permisos', '/admin/access', FiSettings]] },
 ];
 
@@ -60,6 +61,7 @@ function isActive(label, url) {
     if (label === 'Sesiones') return path === '/admin/work-sessions' || path === '/monitor/work-sessions' || path === '/model/work-sessions';
     if (label === 'Plataformas') return path === '/admin/platforms';
     if (label === 'VELVET Agent') return path.startsWith('/admin/agent');
+    if (label === 'Station Manager') return path.startsWith('/admin/station-manager');
     if (label === 'Administración') return path === '/admin/administration';
     return false;
 }
@@ -81,6 +83,7 @@ const requiredPermissions = {
     Sesiones: 'reports.operational.view',
     Plataformas: 'platforms.view',
     'VELVET Agent': 'stations.enroll',
+    'Station Manager': 'stations.assign',
     Administración: 'branches.manage',
     Workflows: 'settings.manage',
     'Visitas guiadas': 'super_admin',

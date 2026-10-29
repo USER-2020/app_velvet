@@ -264,3 +264,13 @@ Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsurePermission::cl
     Route::get('/', [\App\Http\Controllers\Agent\AgentAdministrationController::class, 'index'])->name('index');
     Route::post('/enrollment-tokens/panel', [\App\Http\Controllers\Agent\AgentAdministrationController::class, 'issuePanel'])->name('enrollment-tokens.panel');
 });
+
+Route::get('/admin/station-manager', [\App\Http\Controllers\StationManagerController::class, 'index'])
+    ->middleware(['auth', 'verified', \App\Http\Middleware\EnsurePermission::class.':stations.assign'])
+    ->name('admin.station-manager.index');
+
+Route::middleware(['auth', 'verified', \App\Http\Middleware\EnsurePermission::class.':stations.assign'])->prefix('admin/station-manager')->name('admin.station-manager.')->group(function () {
+    Route::post('/enrollment-codes', [\App\Http\Controllers\StationManagerController::class, 'issueEnrollmentCode'])->name('enrollment-codes.store');
+    Route::post('/assignments', [\App\Http\Controllers\StationManagerController::class, 'assign'])->name('assignments.store');
+    Route::patch('/assignments/{assignment}/end', [\App\Http\Controllers\StationManagerController::class, 'end'])->name('assignments.end');
+});
