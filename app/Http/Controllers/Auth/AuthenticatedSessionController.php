@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Models\Agent\AgentOAuthToken;
+use App\Services\Agent\AgentWorkSessionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -33,6 +35,17 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        // OAuth debe volver al flujo de autorización después del login. Solo
+        // aceptamos esta ruta local del propio Master para no convertir la
+        // URL intended en un redirect abierto.
+        $intended = $request->session()->pull('url.intended');
+        $pendingAgentAuthorize = $request->session()->pull('agent.oauth.pending_authorize');
+        foreach ([$intended, $pendingAgentAuthorize] as $candidate) {
+            if ($this->isAgentAuthorizeUrl($candidate, $request)) {
+                return redirect()->to($candidate);
+            }
+        }
+
         // El portal inicial debe depender del rol actual. No usamos la URL
         // intended porque una ruta administrativa guardada en sesión
         // podría enviar a un monitor o modelo al panel de reclutamiento.
@@ -44,17 +57,41 @@ class AuthenticatedSessionController extends Controller
         return redirect()->to(route($destination, absolute: false));
     }
 
+    private function isAgentAuthorizeUrl(mixed $url, Request $request): bool
+    {
+        if (! is_string($url) || $url === '') {
+            return false;
+        }
+
+        $parts = parse_url($url);
+        $host = $parts['host'] ?? null;
+
+        return ($parts['path'] ?? null) === '/oauth/agent/authorize'
+            && ($host === null || hash_equals($request->getHost(), $host));
+    }
+
     /**
      * Destroy an authenticated session.
      */
-    public function destroy(Request $request): RedirectResponse
+    public function destroy(Request $request, AgentWorkSessionService $sessions): RedirectResponse
     {
+        $installationId = $request->session()->get('agent.oauth.installation_id');
+        if (is_string($installationId) && $installationId !== '') {
+            $tokens = AgentOAuthToken::query()
+                ->whereHas('station', fn ($query) => $query->where('installation_id', strtolower($installationId)))
+                ->whereNull('revoked_at')->with('station')->get();
+            foreach ($tokens as $token) {
+                $sessions->endForStation($token->station_id, 'logout');
+                $token->update(['revoked_at' => now()]);
+            }
+        }
+
         Auth::guard('web')->logout();
 
         $request->session()->invalidate();
 
         $request->session()->regenerateToken();
 
-        return redirect('/');
+        return redirect()->route('login');
     }
 }

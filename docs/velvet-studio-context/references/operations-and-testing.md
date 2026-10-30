@@ -100,7 +100,7 @@ autorizada. Despues de publicar cambios PHP, ejecutar `php artisan optimize:clea
 `.github/workflows/ci.yml` corre en `push` y `pull_request` con dos jobs:
 
 1. **Backend · PHP 8.2**: Composer, `composer validate --strict`, `.env`, key y `php artisan test`.
-2. **Frontend · Node 22**: `npm ci` y `npm run build`.
+2. **Frontend · Node 22**: `npm ci`, `npm run build` y `node --test tests/js/*.test.mjs`.
 
 Pint estricto no está activado como gate porque el código existente requiere normalización global; no activar un cambio masivo de formato como parte de una funcionalidad.
 
@@ -124,3 +124,20 @@ Las cuentas Studio de plataformas no se configuran desde `.env`: sus secretos au
 | Portal muestra datos inesperados | `EnsureActiveOperationalProfile`, estado `ACTIVE`, `training_mode` y `TrainingRecord`. |
 | Doble conversión/reserva | transacción, bloqueo, índice único y prueba de reintento. |
 | Build falla | `npm ci`, versión Node, imports, Vite y rutas de assets; no modificar `.env` para ocultar el error. |
+
+## Operación y pruebas de Agent
+
+Variables: `AGENT_MASTER_URL` debe ser HTTPS sin credenciales y `AGENT_STUDIO_IDS` contiene IDs externos autorizados separados por comas. `VelvetMasterOperationalPermissionsSeeder` añade `stations.*` a administración; los seeders no crean estaciones. Aplicar las migraciones por el procedimiento de despliegue del proyecto y reconstruir la caché de configuración.
+
+Activar el scheduler cada minuto. `agent:maintain` caduca comandos pendientes, elimina respuestas cifradas de replay vencidas y calcula offline con tolerancia al intervalo. Conservar `APP_KEY` y los registros de claves/hash; una respuesta perdida de enrolamiento puede recuperarse durante cinco minutos mediante la misma clave y cuerpo. Nunca incluir tokens reales en documentación, logs o ejemplos.
+
+```bash
+php artisan test --compact tests/Feature/AgentIntegrationTest.php
+node --test tests/js/*.test.mjs
+```
+
+`AgentIntegrationTest` cubre tokens, aislamiento, revocación, configuración, idempotencia, telemetría nullable, precisión de fechas .NET, comandos, permisos, rate limiting con caché de base de datos, recuperación y offline. La regresión frontend de CSRF verifica que no se conserve el token fijo del HTML tras cambiar de sesión.
+
+Diagnóstico: 400 indica payload/transporte/clave inválidos; 401/403 exige revisar credencial, revocación y ability; 409 requiere conciliar cuerpo, UUID, reserva o ventana vencida; 429 incluye `Retry-After`; 503 puede indicar `AGENT_MASTER_URL` incompleta. Agent reintenta 429/5xx con backoff; no crear comandos nuevos automáticamente para resolver resultados desconocidos (404).
+
+Referencia completa: [AGENT_INTEGRATION.md](../../AGENT_INTEGRATION.md). Las APIs están implementadas; su activación y prueba con Agent Windows son pasos de despliegue. La entrega de comandos/Reverb continúa pendiente.

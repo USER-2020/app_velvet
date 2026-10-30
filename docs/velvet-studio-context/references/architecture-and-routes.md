@@ -107,3 +107,13 @@ leen desde el disco privado `local`; no dependen de `storage:link`.
 ## Fuente de verdad para cambios
 
 Antes de modificar una funcionalidad, revisar el controlador, middleware de la ruta, modelo/migración, página React y pruebas relacionadas. No usar únicamente el menú lateral como mapa de permisos: el menú es una vista filtrada del frontend.
+
+## Integración VELVET Agent
+
+La integración incorpora `routes/api.php`, registrado en `bootstrap/app.php`, con rutas stateless `/api/agent` para `enroll`, OAuth, `heartbeat`, `configuration`, `events` y `commands/{id}/result`. Sus respuestas son JSON 200/204, no páginas Inertia. `AgentTransport` exige HTTPS/JSON y tamaño acotado; `AuthenticateAgent` valida credencial propia de estación o access token OAuth, abilities y revocación, con rate limiting y bloqueo transaccional.
+
+`AgentController` gestiona las peticiones de dispositivo; `AgentAdministrationController` emite tokens y permite configurar/revocar/reservar comandos por `/admin/agent` usando autenticación web y `EnsurePermission` con permisos `stations.*`. No hay página React de estaciones.
+
+Modelos en `app/Models/Agent`, servicios `AgentPayload`/`Idempotency` y migraciones `2026_10_21_000000_create_agent_integration_tables.php` y `2026_10_22_000000_create_agent_oauth_tables.php`. Los usuarios siguen con sus sesiones web; OAuth vincula usuario y estación sin reemplazar la identidad técnica. `config/agent.php` define el registro externo de estudios y los tiempos. `agent:maintain` se programa cada minuto en `routes/console.php`.
+
+Contrato y límites: [guía de integración](../../AGENT_INTEGRATION.md) y [OpenAPI](../../agent.openapi.json). La entrega de comandos/Reverb y la entidad Studio permanecen pendientes.

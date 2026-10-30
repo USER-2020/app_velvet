@@ -15,6 +15,7 @@ use Spatie\Permission\Middleware\RoleOrPermissionMiddleware;
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
+        api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
@@ -23,9 +24,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // Confiar en sus encabezados permite que Laravel genere URLs HTTPS.
         $middleware->trustProxies(at: env('TRUSTED_PROXIES', '127.0.0.1'));
 
+        $middleware->prependToPriorityList(\Illuminate\Routing\Middleware\ThrottleRequests::class, \App\Http\Middleware\Agent\AgentTransport::class);
+        $middleware->prependToPriorityList(\App\Http\Middleware\PreserveAgentOAuthIntent::class, \Illuminate\Auth\Middleware\Authenticate::class);
+
+        $middleware->trimStrings(except: [fn ($request) => $request->is('api/agent/*')]);
+        $middleware->convertEmptyStringsToNull(except: [fn ($request) => $request->is('api/agent/*')]);
+
         $middleware->web(append: [
             EnsureActiveUser::class,
             AddSecurityHeaders::class,
+            \App\Http\Middleware\PreserveAgentOAuthIntent::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);

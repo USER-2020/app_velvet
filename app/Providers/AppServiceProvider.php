@@ -35,6 +35,10 @@ class AppServiceProvider extends ServiceProvider
             throw new LogicException('APP_DEBUG debe estar desactivado en producción.');
         }
 
+        \Illuminate\Support\Facades\RateLimiter::for('agent-ip', fn ($request) => \Illuminate\Cache\RateLimiting\Limit::perMinute(240)->by($request->ip()));
+        \Illuminate\Support\Facades\RateLimiter::for('agent-enroll', fn ($request) => \Illuminate\Cache\RateLimiting\Limit::perMinute(10)->by($request->ip()));
+        \Illuminate\Support\Facades\RateLimiter::for('agent-station', fn ($request) => \Illuminate\Cache\RateLimiting\Limit::perMinute(120)->by('station:'.$request->attributes->get('agentStation')->id));
+
         VerifyEmail::toMailUsing(function (object $notifiable, string $verificationUrl): MailMessage {
             return (new MailMessage)
                 ->subject('Confirma tu correo · The Velvet Studio')

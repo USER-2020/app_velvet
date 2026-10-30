@@ -19,7 +19,7 @@ class TestUsersSeeder extends Seeder
         // Permite ejecutar este seeder directamente en una base recién migrada.
         $this->call(RolePermissionSeeder::class);
 
-        $password = env('VELVET_TEST_USERS_PASSWORD', 'ChangeMe123!');
+        $password = env('VELVET_TEST_USERS_PASSWORD', 'ChangeMe123!'); 
 
         $users = [
             ['name' => 'Prueba Super Administrador', 'email' => 'superadmin@velvet.test', 'role' => 'super_admin'],

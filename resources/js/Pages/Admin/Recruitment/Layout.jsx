@@ -1,6 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
-import { FiBell, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiCompass, FiDatabase, FiFileText, FiGrid, FiHome, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
+import { FiBell, FiBookOpen, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiCompass, FiDatabase, FiFileText, FiGrid, FiHome, FiLink, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
 import BrandMark from '@/Components/BrandMark';
 import { useAuthorization } from '@/lib/authorization';
 import toast from 'react-hot-toast';
@@ -20,8 +20,9 @@ const sections = [
     { label: 'Reclutamiento', items: [['Leads', '/admin/leads', FiUsers], ['Candidatos', '/admin/candidates', FiUserCheck], ['Entrevistas', '/admin/interviews', FiCalendar], ['Contratación', '/admin/contracting', FiBriefcase], ['Calendario', '/admin/calendar', FiCalendar], ['Pipeline', '/admin/recruitment', FiGrid]] },
     { label: 'Onboarding', items: [['Procesos', '/admin/processes', FiClipboard], ['Validaciones', '/admin/validations', FiFileText], ['Documentos', '/admin/documents', FiFileText]] },
     { label: 'Personas', items: [['Modelos', '/admin/candidates?type=MODEL', FiUsers], ['Monitores', '/admin/candidates?type=MONITOR', FiBriefcase]] },
-    { label: 'Operación', items: [['Operación diaria', '/admin/operations', FiClipboard], ['Sesiones', '/admin/productivity', FiCalendar], ['Plataformas', '/admin/platforms', FiDatabase], ['Administración', '/admin/administration', FiBriefcase], ['Rooms', '/admin/rooms', FiHome]] },
-    { label: 'Configuración', items: [['Workflows', '/admin/workflows', FiSettings], ['Datos de prueba', '/admin/training-data', FiDatabase], ['Usuarios', '/admin/users', FiUsers], ['Roles y permisos', '/admin/access', FiSettings]] },
+    { label: 'Operación', items: [['Operación diaria', '/admin/operations', FiClipboard], ['Sesiones', '/admin/work-sessions', FiCalendar], ['Station Manager', '/admin/station-manager', FiLink], ['Plataformas', '/admin/platforms', FiDatabase], ['Administración', '/admin/administration', FiBriefcase], ['Rooms', '/admin/rooms', FiHome]] },
+    { label: 'Integraciones', items: [['VELVET Agent', '/admin/agent', FiDatabase]] },
+    { label: 'Configuración', items: [['Documentación', '/admin/documentation', FiBookOpen], ['Workflows', '/admin/workflows', FiSettings], ['Datos de prueba', '/admin/training-data', FiDatabase], ['Usuarios', '/admin/users', FiUsers], ['Roles y permisos', '/admin/access', FiSettings]] },
 ];
 
 function Wordmark() {
@@ -29,8 +30,8 @@ function Wordmark() {
 }
 
 const portalSections = {
-    monitor: [{ label: 'Operación', items: [['Dashboard', '/monitor/dashboard', FiGrid]] }],
-    model: [{ label: 'Operación', items: [['Dashboard', '/model/dashboard', FiGrid]] }],
+    monitor: [{ label: 'Operación', items: [['Dashboard', '/monitor/dashboard', FiGrid], ['Sesiones', '/monitor/work-sessions', FiCalendar], ['Documentación', '/admin/documentation', FiBookOpen]] }],
+    model: [{ label: 'Operación', items: [['Dashboard', '/model/dashboard', FiGrid], ['Sesiones', '/model/work-sessions', FiCalendar], ['Documentación', '/admin/documentation', FiBookOpen]] }],
 };
 
 function isActive(label, url) {
@@ -51,13 +52,16 @@ function isActive(label, url) {
     if (label === 'Procesos') return path === '/admin/processes';
     if (label === 'Usuarios') return path === '/admin/users';
     if (label === 'Roles y permisos') return path === '/admin/access';
+    if (label === 'Documentación') return path.startsWith('/admin/documentation');
     if (label === 'Workflows') return path === '/admin/workflows';
     if (label === 'Visitas guiadas') return path === '/admin/guided-tours';
     if (label === 'Datos de prueba') return path === '/admin/training-data';
     if (label === 'Rooms') return path === '/admin/rooms' || path === '/monitor/rooms' || path === '/model/rooms';
     if (label === 'Operación diaria') return path === '/admin/operations';
-    if (label === 'Sesiones') return path === '/admin/productivity';
+    if (label === 'Sesiones') return path === '/admin/work-sessions' || path === '/monitor/work-sessions' || path === '/model/work-sessions';
     if (label === 'Plataformas') return path === '/admin/platforms';
+    if (label === 'VELVET Agent') return path.startsWith('/admin/agent');
+    if (label === 'Station Manager') return path.startsWith('/admin/station-manager');
     if (label === 'Administración') return path === '/admin/administration';
     return false;
 }
@@ -78,9 +82,12 @@ const requiredPermissions = {
     'Operación diaria': 'shifts.view_team',
     Sesiones: 'reports.operational.view',
     Plataformas: 'platforms.view',
+    'VELVET Agent': 'stations.enroll',
+    'Station Manager': 'stations.assign',
     Administración: 'branches.manage',
     Workflows: 'settings.manage',
     'Visitas guiadas': 'super_admin',
+    Documentación: 'super_admin',
     'Datos de prueba': 'super_admin',
     Usuarios: 'users.view',
     'Roles y permisos': 'roles.view',
@@ -89,7 +96,7 @@ const requiredPermissions = {
 function Sidebar({ onClose, url, user, can }) {
     const roleSlug = user?.roles?.[0]?.slug;
     if (portalSections[roleSlug]) return <PortalSidebar onClose={onClose} url={url} user={user} can={can} roleSlug={roleSlug} />;
-    const canLabel = (label) => can(requiredPermissions[label]);
+    const canLabel = (label) => label === 'Documentación' || can(requiredPermissions[label]);
     return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 space-y-6 overflow-y-auto">{sections.map((section) => { const visibleItems = section.items.filter(([label]) => canLabel(label)); if (!visibleItems.length) return null; return <div key={section.label}><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">{section.label}</p><div className="space-y-1">{visibleItems.map(([label, href, Icon]) => { const active = isActive(label, url); return <Link key={label} href={href} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>; })}</div></div>; })}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
 }
 
@@ -97,16 +104,16 @@ function PortalSidebar({ onClose, url, user, can, roleSlug }) {
     if (roleSlug === 'monitor') return <GroupedPortalSidebar onClose={onClose} url={url} can={can} />;
     const href = roleSlug === 'monitor' ? '/monitor/dashboard' : '/model/dashboard';
     const permission = roleSlug === 'monitor' ? 'rooms.view_team' : 'rooms.view_own';
-    const items = [{ label: 'Dashboard', href, icon: FiGrid, permission }, ...(roleSlug === 'model' ? [{ label: 'Rooms', href: '/model/rooms', icon: FiHome, permission: 'rooms.view_own' }, { label: 'Mi perfil', href: '/model/profile', icon: FiUser, permission: 'profile.view_own' }] : []), ...(roleSlug === 'monitor' ? [{ label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }, { label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] : [])];
-    return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 overflow-y-auto"><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">Operación</p>{items.filter((item) => can(item.permission)).map(({ label, href: itemHref, icon: Icon }) => <Link key={label} href={itemHref} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isActive(label, url) ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{isActive(label, url) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>)}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
+    const items = [{ label: 'Dashboard', href, icon: FiGrid, permission }, { label: 'Sesiones', href: roleSlug === 'monitor' ? '/monitor/work-sessions' : '/model/work-sessions', icon: FiCalendar, permission: roleSlug === 'monitor' ? 'models.view_metrics' : 'metrics.view_own' }, { label: 'Documentación', href: '/admin/documentation', icon: FiBookOpen, permission: null }, ...(roleSlug === 'model' ? [{ label: 'Rooms', href: '/model/rooms', icon: FiHome, permission: 'rooms.view_own' }, { label: 'Mi perfil', href: '/model/profile', icon: FiUser, permission: 'profile.view_own' }] : []), ...(roleSlug === 'monitor' ? [{ label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }, { label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] : [])];
+    return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 overflow-y-auto"><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">Operación</p>{items.filter((item) => item.permission === null || can(item.permission)).map(({ label, href: itemHref, icon: Icon }) => <Link key={label} href={itemHref} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isActive(label, url) ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{isActive(label, url) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>)}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
 }
 
 function GroupedPortalSidebar({ onClose, url, can }) {
     const groups = [
-        { label: 'Operación', items: [{ label: 'Dashboard', href: '/monitor/dashboard', icon: FiGrid, permission: 'rooms.view_team' }, { label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }] },
+        { label: 'Operación', items: [{ label: 'Dashboard', href: '/monitor/dashboard', icon: FiGrid, permission: 'rooms.view_team' }, { label: 'Sesiones', href: '/monitor/work-sessions', icon: FiCalendar, permission: 'models.view_metrics' }, { label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }, { label: 'Documentación', href: '/admin/documentation', icon: FiBookOpen, permission: null }] },
         { label: 'Personas', items: [{ label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] },
     ];
-    return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 space-y-6 overflow-y-auto">{groups.map((group) => { const items = group.items.filter((item) => can(item.permission)); if (!items.length) return null; return <div key={group.label}><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">{group.label}</p><div className="space-y-1">{items.map(({ label, href, icon: Icon }) => <Link key={label} href={href} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isActive(label, url) ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{isActive(label, url) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>)}</div></div>; })}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
+    return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 space-y-6 overflow-y-auto">{groups.map((group) => { const items = group.items.filter((item) => item.permission === null || can(item.permission)); if (!items.length) return null; return <div key={group.label}><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">{group.label}</p><div className="space-y-1">{items.map(({ label, href, icon: Icon }) => <Link key={label} href={href} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isActive(label, url) ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{isActive(label, url) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>)}</div></div>; })}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
 }
 
 function ProfileMenu({ user, open, onToggle, menuRef }) {

@@ -16,6 +16,12 @@ class VelvetMasterOperationalPermissionsSeeder extends Seeder
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
         $permissions = collect([
+            ['name' => 'Enrolar estaciones Agent', 'slug' => 'stations.enroll', 'group' => 'VELVET Agent'],
+            ['name' => 'Conectarse a estaciones Agent', 'slug' => 'stations.connect', 'group' => 'VELVET Agent'],
+            ['name' => 'Revocar estaciones Agent', 'slug' => 'stations.revoke', 'group' => 'VELVET Agent'],
+            ['name' => 'Configurar estaciones Agent', 'slug' => 'stations.configure', 'group' => 'VELVET Agent'],
+            ['name' => 'Solicitar estado de estaciones Agent', 'slug' => 'stations.commands', 'group' => 'VELVET Agent'],
+            ['name' => 'Asignar estaciones Agent', 'slug' => 'stations.assign', 'group' => 'VELVET Agent'],
             ['name' => 'Gestionar asistencia operativa', 'slug' => 'attendance.manage', 'group' => 'Asistencia'],
             ['name' => 'Gestionar checklists operativos de salas', 'slug' => 'room_checklists.manage', 'group' => 'Habitaciones'],
             ['name' => 'Ver plataformas webcam', 'slug' => 'platforms.view', 'group' => 'Plataformas webcam'],
@@ -45,6 +51,7 @@ class VelvetMasterOperationalPermissionsSeeder extends Seeder
             'monitor' => ['productivity.validate_assigned', 'studio_accounts.assign_assigned'],
             'finance' => ['integrations.finance_export', 'reports.operational.view'],
             'compliance' => ['platforms.view', 'reports.operational.view'],
+            'model' => ['stations.connect'],
         ];
 
         foreach ($assignments as $roleSlug => $slugs) {

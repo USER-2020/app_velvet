@@ -1,6 +1,6 @@
 # Velvet Master - roadmap de implementacion
 
-Actualizado: 2026-10-12.
+Actualizado: 2026-10-21.
 
 ## Auditoria inicial
 
@@ -80,3 +80,10 @@ Administracion, Plataformas y Productividad comparten `OperationsPageHeader`: el
 
 El modal de creacion y edicion de usuarios usa un ancho máximo de 72rem, altura limitada al viewport, header y footer fijos, y contenido central con el scrollbar delgado `velvet-scrollbar`.
 
+## Integración VELVET Agent · estado al 2026-10-21
+
+Implementado en Master: cinco APIs de dispositivo, enrolamiento de un uso con replay cifrado corto, credenciales por estación, heartbeat, configuración versionada, eventos saneados, resultados terminales, revocación, idempotencia persistida y límites por IP/estación. También rutas administrativas con permisos `stations.*`, reservas exclusivas de `RefreshStatus` y mantenimiento programado de caducidad/offline.
+
+Pendiente: entidad Studio y políticas de pertenencia; interfaz administrativa de estaciones con su visita guiada; transporte de comandos y autorización Reverb/WSS por dispositivo; validación conjunta en staging con MySQL, proxy TLS y Agent Windows. El registro temporal de estudios es `AGENT_STUDIO_IDS`. No están habilitados shell remoto ni operaciones OBS de escritura.
+
+Contrato Master 0.1.1 y coordinación con Agent: [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md) y [agent.openapi.json](agent.openapi.json). Pruebas automatizadas: `AgentIntegrationTest`.

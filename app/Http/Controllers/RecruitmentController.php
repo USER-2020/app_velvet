@@ -887,6 +887,7 @@ class RecruitmentController extends Controller
 
     public function ablyToken(): JsonResponse
     {
+        abort_unless(auth()->user()?->hasAnyPermission(['leads.view', 'stations.assign']), 403);
         abort_unless(config('services.ably.api_key'), 503, 'Ably no está configurado.');
         [$keyName, $keySecret] = explode(':', config('services.ably.api_key'), 2);
         $response = Http::withBasicAuth($keyName, $keySecret)

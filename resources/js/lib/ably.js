@@ -30,8 +30,13 @@ export function subscribeToRealtime(onUpdate, eventName = null, onAvailabilityCh
         });
     }
     const channelNames = (import.meta.env.VITE_ABLY_CHANNELS || import.meta.env.VITE_ABLY_CHANNEL || 'admin-leads').split(',').map((name) => name.trim()).filter(Boolean);
-    const roomsChannel = import.meta.env.VITE_ABLY_ROOMS_CHANNEL || 'admin-rooms';
-    if (!channelNames.includes(roomsChannel)) channelNames.push(roomsChannel);
+    const extraChannels = [
+        import.meta.env.VITE_ABLY_ROOMS_CHANNEL || 'admin-rooms',
+        import.meta.env.VITE_ABLY_STATION_MANAGER_CHANNEL || 'admin-station-manager',
+    ];
+    extraChannels.forEach((channel) => {
+        if (!channelNames.includes(channel)) channelNames.push(channel);
+    });
     const channels = channelNames.map((name) => realtime.channels.get(name));
     const handler = (message) => {
         let data = message.data;

@@ -9,6 +9,8 @@ use App\Models\RoomUsageLog;
 use App\Enums\CandidateStatus;
 use App\Models\LeadDocument;
 use App\Models\TrainingRecord;
+use App\Models\Agent\AgentOAuthToken;
+use App\Models\Agent\AgentWorkSession;
 use App\Services\RealtimePublisher;
 use App\Services\AuditLogger;
 use App\Services\OperationalSessionService;
@@ -52,6 +54,8 @@ class PortalRoomController extends Controller
         return Inertia::render('Portal/Model/Dashboard', [
             'candidate' => $candidate ? $this->candidatePayload($candidate) : null,
             'statistics' => $candidate ? $this->statisticsForModels([$candidate->id]) : $this->emptyStatistics(),
+            'agentStatistics' => $candidate ? $this->agentStatisticsForUser($request->user()->id) : $this->emptyAgentStatistics(),
+            'agentConnection' => $this->agentConnectionPayload($request->user()->id),
             'activityTrend' => $candidate ? $this->activityTrendForModels([$candidate->id]) : $this->emptyActivityTrend(),
         ]);
     }
@@ -93,6 +97,8 @@ class PortalRoomController extends Controller
         return Inertia::render('Portal/Model/Profile', [
             'profile' => $this->modelProfilePayload($candidate),
             'statistics' => $this->statisticsForModels([$candidate->id]),
+            'agentStatistics' => $this->agentStatisticsForUser($request->user()->id),
+            'agentConnection' => $this->agentConnectionPayload($request->user()->id),
             'documents' => $this->ownDocuments($request),
             'platformAccounts' => $this->platformAccountsFor($candidate),
         ]);
@@ -580,6 +586,25 @@ class PortalRoomController extends Controller
         ];
     }
 
+    private function emptyAgentStatistics(): array
+    {
+        return ['sessions' => 0, 'connectedSeconds' => 0, 'streamingSeconds' => 0];
+    }
+
+    private function agentStatisticsForUser(int $userId): array
+    {
+        $sessions = AgentWorkSession::query()
+            ->where('user_id', $userId)
+            ->where('started_at', '>=', now('America/Bogota')->startOfMonth()->utc())
+            ->get(['total_connected_seconds', 'total_streaming_seconds']);
+
+        return [
+            'sessions' => $sessions->count(),
+            'connectedSeconds' => (int) $sessions->sum('total_connected_seconds'),
+            'streamingSeconds' => (int) $sessions->sum('total_streaming_seconds'),
+        ];
+    }
+
     private function emptyActivityTrend(): array
     {
         return collect(range(5, 0))->map(fn ($offset) => ['label' => now('America/Bogota')->subWeeks($offset)->format('d M'), 'sessions' => 0, 'tokens' => 0])->values()->all();
@@ -676,6 +701,42 @@ class PortalRoomController extends Controller
             'status' => 'INDUCTION',
             'personal' => ['name' => $request->user()->name, 'email' => $request->user()->email],
             'operational' => ['status' => 'TRAINING', 'monitor_name' => null],
+        ];
+    }
+
+    private function agentConnectionPayload(int $userId): array
+    {
+        $session = AgentWorkSession::query()->with('station')->where('user_id', $userId)->latest('started_at')->first();
+        $token = AgentOAuthToken::query()->with('station')->where('user_id', $userId)->whereNull('revoked_at')->where('refresh_expires_at', '>', now())->latest('created_at')->first();
+        $station = $session?->station ?: $token?->station;
+
+        if (! $station) {
+            return ['status' => 'not_enrolled', 'station' => null, 'session' => null];
+        }
+
+        $recent = $station->last_seen_at?->greaterThanOrEqualTo(now()->subSeconds(config('agent.session_timeout_seconds')));
+        $status = $session?->status === 'active' && $recent ? 'connected' : ($session?->status === 'active' ? 'disconnected' : 'enrolled');
+
+        return [
+            'status' => $status,
+            'station' => [
+                'hostname' => $station->hostname,
+                'studioId' => $station->studio_id,
+                'version' => $station->version,
+                'lastSeenAt' => $station->last_seen_at?->toIso8601String(),
+                'obsReportedAt' => $station->obs_reported_at?->toIso8601String(),
+                'obs' => $station->obs_status,
+                'metrics' => $station->system_metrics,
+            ],
+            'session' => $session ? [
+                'id' => $session->id,
+                'status' => $session->status,
+                'startedAt' => $session->started_at?->toIso8601String(),
+                'lastHeartbeatAt' => $session->last_heartbeat_at?->toIso8601String(),
+                'endedAt' => $session->ended_at?->toIso8601String(),
+                'connectedSeconds' => (int) $session->total_connected_seconds,
+                'streamingSeconds' => (int) $session->total_streaming_seconds,
+            ] : null,
         ];
     }
 

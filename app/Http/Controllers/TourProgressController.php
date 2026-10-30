@@ -31,6 +31,9 @@ class TourProgressController extends Controller
         'workflows',
         'training-data',
         'guided-tours',
+        'documentation',
+        'agent',
+        'station-manager',
         'users',
         'roles',
         'notifications',
@@ -41,6 +44,7 @@ class TourProgressController extends Controller
         'model-portal',
         'model-rooms',
         'model-profile',
+        'work-sessions',
     ];
 
     public function update(Request $request, string $tourKey)

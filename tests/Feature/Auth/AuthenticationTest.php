@@ -31,6 +31,21 @@ class AuthenticationTest extends TestCase
         $response->assertRedirect(route('admin.recruitment', absolute: false));
     }
 
+    public function test_login_returns_to_agent_authorization_flow(): void
+    {
+        $user = User::factory()->create();
+
+        $this->get('/oauth/agent/authorize?client_id=velvet-agent')
+            ->assertRedirect(route('login'));
+
+        $response = $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'password',
+        ]);
+
+        $response->assertRedirect('/oauth/agent/authorize?client_id=velvet-agent');
+    }
+
     public function test_users_can_not_authenticate_with_invalid_password(): void
     {
         $user = User::factory()->create();
@@ -50,7 +65,9 @@ class AuthenticationTest extends TestCase
         $response = $this->actingAs($user)->post('/logout');
 
         $this->assertGuest();
-        $response->assertRedirect('/');
+        $response->assertRedirect(route('login'));
+        $this->get('/login')->assertOk();
+        $this->get('/dashboard')->assertRedirect(route('login'));
     }
 
     public function test_a_new_user_is_redirected_to_its_role_dashboard_after_logout(): void
@@ -65,7 +82,7 @@ class AuthenticationTest extends TestCase
         ]);
         $model->assignRole('model');
 
-        $this->actingAs($firstUser)->post('/logout')->assertRedirect('/');
+        $this->actingAs($firstUser)->post('/logout')->assertRedirect(route('login'));
 
         $response = $this->post('/login', [
             'email' => $model->email,
