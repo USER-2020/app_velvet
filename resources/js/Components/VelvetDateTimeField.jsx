@@ -14,7 +14,7 @@ const nextYear = () => {
     return value;
 };
 
-export default function VelvetDateTimeField({ label, value = '', onChange, error }) {
+export default function VelvetDateTimeField({ label, value = '', onChange, error, timeStep = 60 }) {
     const [date, setDate] = useState(value?.slice(0, 10) || '');
     const [time, setTime] = useState(value?.slice(11, 16) || '');
 
@@ -36,7 +36,7 @@ export default function VelvetDateTimeField({ label, value = '', onChange, error
         <p className="velvet-datetime-field__hint">{isStart ? 'Cuándo comienza el uso' : 'Cuándo termina el uso'}</p>
         <div className="velvet-datetime-field__grid">
             <VelvetDatePicker label="Fecha" value={date} onChange={(event) => update(event.target.value, time)} minDate={today()} maxDate={nextYear()} error={null} ariaLabel={`Seleccionar fecha de ${label.toLowerCase()}`} />
-            <VelvetTimePicker label="Hora" value={time} onChange={(event) => update(date, event.target.value)} error={null} />
+            <VelvetTimePicker label="Hora" value={time} onChange={(event) => update(date, event.target.value)} error={null} step={timeStep} />
         </div>
         {error && <span className="mt-1 block text-xs text-[#ffb1bd]">{error}</span>}
     </fieldset>;
