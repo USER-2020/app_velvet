@@ -101,6 +101,11 @@ class StationManagerController extends Controller
         $startsAt = Carbon::parse($data['starts_at']);
         $endsAt = isset($data['ends_at']) ? Carbon::parse($data['ends_at']) : null;
 
+        $this->ensureQuarterHour($startsAt, 'starts_at');
+        if ($endsAt) {
+            $this->ensureQuarterHour($endsAt, 'ends_at');
+        }
+
         DB::transaction(function () use ($data, $startsAt, $endsAt, $request): void {
             $station = LauncherStation::query()->lockForUpdate()->findOrFail($data['station_id']);
             abort_if($station->revoked_at, 409, 'No se puede asignar una estación revocada.');
@@ -160,6 +165,13 @@ class StationManagerController extends Controller
 
         if ($overlap) {
             throw ValidationException::withMessages([$column => 'Ya existe una asignación activa que se cruza con este horario.']);
+        }
+    }
+
+    private function ensureQuarterHour(Carbon $value, string $field): void
+    {
+        if ($value->minute % 15 !== 0 || $value->second !== 0) {
+            throw ValidationException::withMessages([$field => 'La hora debe estar en intervalos de 15 minutos.']);
         }
     }
 }
