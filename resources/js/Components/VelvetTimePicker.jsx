@@ -2,11 +2,14 @@ import { Clock3 } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
 import { useState } from 'react';
 
-const hourOptions = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`);
-
-export default function VelvetTimePicker({ label, value, onChange, error, min = '00:00', max = '23:00' }) {
+export default function VelvetTimePicker({ label, value, onChange, error, min = '00:00', max = '23:45', step = 60 }) {
     const [open, setOpen] = useState(false);
-    const options = hourOptions.filter((option) => option >= min && option <= max);
+    const optionCount = Math.ceil((24 * 60) / step);
+    const timeOptions = Array.from({ length: optionCount }, (_, index) => {
+        const minutes = index * step;
+        return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    });
+    const options = timeOptions.filter((option) => option >= min && option <= max);
     const selectTime = (time) => {
         onChange({ target: { value: time } });
         setOpen(false);
