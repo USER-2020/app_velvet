@@ -83,6 +83,7 @@ export const productTours = {
         steps: [
             { element: 'a[href="/admin/validations"]', popover: { title: 'Validaciones', description: 'Aquí se concentran los documentos y requisitos pendientes de verificación.' } },
             { element: 'main h1', popover: { title: 'Revisa pendientes', description: 'Abre cada caso para aprobar, solicitar correcciones o continuar con el siguiente paso autorizado.' } },
+            { element: '[data-tour="didit-evidence-refresh"]', optional: true, popover: { title: 'Evidencias permanentes', description: 'Si un enlace temporal de Didit venció, actualiza la sesión para recuperar y guardar nuevamente sus documentos.' } },
             { element: 'main', popover: { title: 'Control documental', description: 'Esta revisión mantiene el proceso listo para onboarding o contratación.' } },
         ],
     },
