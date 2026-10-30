@@ -8,6 +8,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import { useEffect, useState } from 'react';
 import ProductTour from '@/Components/ProductTour';
 import { initializeMetaPixel, trackMetaPageView } from '@/lib/metaPixel';
+import { initializeGoogleAnalytics, trackGooglePageView } from '@/lib/googleAnalytics';
 
 function renderInertiaPage({ Component, props, key }) {
     const child = <Component key={key} {...props} />;
@@ -288,6 +289,34 @@ function MetaPixel() {
     return null;
 }
 
+function GoogleAnalytics() {
+    useEffect(() => {
+        const hasAnalyticsConsent = () => {
+            try {
+                return JSON.parse(window.localStorage.getItem('velvet-cookie-preferences') || '{}').analytics === true;
+            } catch {
+                return false;
+            }
+        };
+
+        const enable = () => {
+            if (!isPublicPath(window.location.pathname) || !hasAnalyticsConsent()) return;
+            if (initializeGoogleAnalytics()) trackGooglePageView();
+        };
+
+        window.addEventListener('velvet-cookie-preferences-updated', enable);
+        enable();
+        const removeFinishListener = router.on('finish', (event) => {
+            const visit = event.detail?.visit;
+            if (String(visit?.method || 'get').toLowerCase() === 'get') enable();
+        });
+
+        return () => { window.removeEventListener('velvet-cookie-preferences-updated', enable); removeFinishListener(); };
+    }, []);
+
+    return null;
+}
+
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
     resolve: (name) =>
@@ -298,7 +327,7 @@ createInertiaApp({
     setup({ el, App, props }) {
         const root = createRoot(el);
 
-        root.render(<><App {...props}>{renderInertiaPage}</App><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /><MetaPixel /></>);
+        root.render(<><App {...props}>{renderInertiaPage}</App><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /><MetaPixel /><GoogleAnalytics /></>);
     },
     progress: {
         color: '#4B5563',
