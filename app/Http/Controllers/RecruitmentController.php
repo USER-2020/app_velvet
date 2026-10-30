@@ -1231,6 +1231,7 @@ class RecruitmentController extends Controller
 
         return Inertia::render('Admin/Recruitment/Candidates/Show', [
             'candidate' => $candidate,
+            'identityRetryAvailable' => $this->identityVerificationNeedsRetry($candidate),
             'contracting' => [
                 'available_slots' => ContractSlot::query()
                     ->where('status', 'AVAILABLE')
@@ -1258,6 +1259,50 @@ class RecruitmentController extends Controller
                     : [],
             ],
         ]);
+    }
+
+    public function requestIdentityVerificationRetry(Request $request, Candidate $candidate): RedirectResponse
+    {
+        $candidate->loadMissing('lead');
+        if (! $this->identityVerificationNeedsRetry($candidate)) {
+            return back()->withErrors(['identity_verification' => 'Este perfil no requiere una nueva verificación.']);
+        }
+        if (! $this->diditIsConfigured()) {
+            return back()->withErrors(['identity_verification' => 'Didit no está configurado en este entorno.']);
+        }
+
+        $previousSession = $candidate->didit_session_id;
+        $token = Str::random(64);
+        $expiresAt = now()->addDays(7);
+        $formUrl = URL::temporarySignedRoute('prequalification.show', $expiresAt, ['candidate' => $candidate->id, 'token' => $token]);
+
+        try {
+            Mail::to($candidate->lead->email)->send(new PrequalificationFormMail($candidate, $formUrl, true));
+        } catch (\Throwable $exception) {
+            report($exception);
+            return back()->withErrors(['identity_verification' => 'No se pudo enviar la solicitud de nueva verificación.']);
+        }
+
+        $candidate->update([
+            'identity_verification_status' => 'NOT_STARTED',
+            'identity_verification_data' => null,
+            'identity_verification_failure_reason' => null,
+            'identity_verified_at' => null,
+            'identity_verification_url' => null,
+            'didit_session_id' => null,
+            'prequalification_token_hash' => hash('sha256', $token),
+            'prequalification_sent_at' => now(),
+            'prequalification_expires_at' => $expiresAt,
+        ]);
+        CandidateActivity::create([
+            'candidate_id' => $candidate->id,
+            'user_id' => $request->user()->id,
+            'type' => 'identity_verification_retry_requested',
+            'description' => 'Se solicitó una nueva verificación de identidad.',
+            'metadata' => ['previous_session_id' => $previousSession, 'expires_at' => $expiresAt->toIso8601String()],
+        ]);
+
+        return back()->with('success', 'Solicitud de nueva verificación enviada correctamente.');
     }
 
     public function startContracting(Request $request, Candidate $candidate): RedirectResponse
@@ -1896,6 +1941,26 @@ class RecruitmentController extends Controller
     {
         return $candidate->identity_verification_status === 'APPROVED'
             && (app()->environment('local') || data_get($candidate->identity_verification_data ?? [], 'age_verified') === true);
+    }
+
+    private function identityVerificationNeedsRetry(Candidate $candidate): bool
+    {
+        if (! in_array($candidate->candidate_type?->value, ['MODEL', 'MONITOR'], true)) {
+            return false;
+        }
+
+        if (in_array($candidate->identity_verification_status, ['DECLINED', 'EXPIRED', 'ABANDONED', 'IN_REVIEW'], true)) {
+            return true;
+        }
+
+        if ($candidate->identity_verification_status !== 'APPROVED') {
+            return false;
+        }
+
+        $disk = config('services.didit.evidence_disk', 'local');
+        $images = $candidate->identity_verification_data['images'] ?? [];
+
+        return empty($images) || collect($images)->contains(fn ($image) => empty($image['path']) || ! Storage::disk($disk)->exists($image['path']));
     }
 
     private function diditSignatureIsValid(Request $request, string $rawBody, string $secret): bool

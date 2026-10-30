@@ -161,6 +161,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/candidates/{candidate}', [RecruitmentController::class, 'candidate'])->name('candidates.show');
         });
         Route::put('/candidates/{candidate}', [RecruitmentController::class, 'updateCandidate'])->middleware('permission:candidates.update')->name('candidates.update');
+        Route::post('/candidates/{candidate}/identity-verification/retry', [RecruitmentController::class, 'requestIdentityVerificationRetry'])->middleware('permission:documents.verify')->name('candidates.identity-verification.retry');
         Route::post('/candidates/{candidate}/activate-access', [RecruitmentController::class, 'activateCandidateAccess'])->middleware('permission:candidates.activate_access')->name('candidates.activate-access');
         Route::patch('/candidates/{candidate}/access-status', [RecruitmentController::class, 'updateCandidateAccessStatus'])->middleware('permission:candidates.activate_access')->name('candidates.access-status');
         Route::post('/candidates/{candidate}/training-records', [OperationalProfileController::class, 'storeTrainingRecord'])->middleware('permission:onboarding.manage')->name('candidates.training-records.store');
