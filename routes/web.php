@@ -190,6 +190,8 @@ Route::middleware('auth')->group(function () {
         });
         Route::middleware('permission:documents.verify')->group(function () {
             Route::get('/validations', [RecruitmentController::class, 'validations'])->name('validations');
+            Route::get('/validations/{candidate}/evidence/{image}', [RecruitmentController::class, 'diditEvidence'])->name('validations.evidence');
+            Route::post('/validations/{candidate}/refresh', [RecruitmentController::class, 'refreshDiditValidation'])->name('validations.refresh');
         });
         Route::middleware('permission:documents.view')->prefix('documents')->name('documents.')->group(function () {
             Route::get('/', [DocumentsController::class, 'index'])->name('index');

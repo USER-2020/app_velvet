@@ -41,6 +41,7 @@ return [
         'workflow_id' => env('DIDIT_WORKFLOW_ID'),
         'webhook_secret' => env('DIDIT_WEBHOOK_SECRET'),
         'webhook_url' => env('DIDIT_WEBHOOK_URL'),
+        'evidence_disk' => env('DIDIT_EVIDENCE_DISK', 'local'),
     ],
 
     'velvet' => [

@@ -32,6 +32,7 @@ use App\Services\InterviewInvitationService;
 use App\Services\ContractingInvitationService;
 use App\Services\AuditLogger;
 use App\Services\ProfilePhotoService;
+use App\Services\DiditEvidenceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -406,6 +407,8 @@ class RecruitmentController extends Controller
             $summary['failure_reason'] = 'Didit aprobó el documento, pero no coincide ' . implode(' ni ', $reasons) . ' registrada en el onboarding.';
         }
 
+        $summary['images'] = app(DiditEvidenceService::class)->archive($candidate, $summary['images']);
+
         $sameDecision = $candidate->didit_session_id === ($sessionId ?: $candidate->didit_session_id)
             && $candidate->identity_verification_status === $status;
         $candidate->update([
@@ -756,6 +759,49 @@ class RecruitmentController extends Controller
         return Inertia::render('Admin/Recruitment/Validations/Index', [
             'validations' => $validations,
             'filters' => $request->only('search', 'status'),
+        ]);
+    }
+
+    public function diditEvidence(Candidate $candidate, string $image)
+    {
+        $evidence = collect($candidate->identity_verification_data['images'] ?? [])
+            ->first(fn ($item) => ($item['key'] ?? null) === $image);
+        abort_unless(is_array($evidence) && ! empty($evidence['path']), 404);
+
+        $disk = config('services.didit.evidence_disk', 'local');
+        abort_unless(Storage::disk($disk)->exists($evidence['path']), 404);
+        $stream = Storage::disk($disk)->readStream($evidence['path']);
+        abort_unless(is_resource($stream), 404);
+
+        return response()->stream(function () use ($stream): void {
+            fpassthru($stream);
+            fclose($stream);
+        }, 200, [
+            'Content-Type' => $evidence['mime_type'] ?? 'application/octet-stream',
+            'Content-Disposition' => 'inline; filename="didit-' . $image . '"',
+            'Cache-Control' => 'private, max-age=300',
+        ]);
+    }
+
+    public function refreshDiditValidation(Candidate $candidate): JsonResponse
+    {
+        abort_unless($candidate->didit_session_id, 404);
+
+        $decision = Http::timeout(20)
+            ->acceptJson()
+            ->withHeaders(['x-api-key' => config('services.didit.api_key')])
+            ->get(rtrim(config('services.didit.base_url'), '/') . "/v3/session/{$candidate->didit_session_id}/decision/");
+
+        if (! $decision->successful() || ! is_array($decision->json())) {
+            return response()->json(['message' => 'Didit no devolvió una decisión para esta sesión.'], 422);
+        }
+
+        $this->syncDiditDecision($candidate, $decision->json(), $candidate->didit_session_id);
+        $candidate->refresh();
+
+        return response()->json([
+            'status' => $candidate->identity_verification_status,
+            'data' => $candidate->identity_verification_data,
         ]);
     }
 
@@ -1969,7 +2015,7 @@ class RecruitmentController extends Controller
             foreach ($value as $key => $child) {
                 $normalizedKey = Str::of((string) $key)->lower()->replace(['-', ' '], '_')->toString();
                 if (isset($allowed[$normalizedKey]) && is_string($child) && filter_var($child, FILTER_VALIDATE_URL) && Str::startsWith($child, 'https://')) {
-                    $images[$normalizedKey] = ['label' => $allowed[$normalizedKey], 'url' => $child];
+                    $images[$normalizedKey] = ['key' => $normalizedKey, 'label' => $allowed[$normalizedKey], 'source_url' => $child];
                     continue;
                 }
                 $walk($child);
