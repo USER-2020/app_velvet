@@ -32,6 +32,8 @@ use App\Services\InterviewInvitationService;
 use App\Services\ContractingInvitationService;
 use App\Services\AuditLogger;
 use App\Services\ProfilePhotoService;
+use App\Services\DiditEvidenceService;
+use App\Services\CandidateWorkflowAutomationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -81,7 +83,10 @@ class RecruitmentController extends Controller
         }
         $this->publishLeadEvent($lead, 'lead.created', ['notification' => ['title' => 'Nuevo lead recibido', 'description' => "{$lead->full_name} envió una aplicación."]]);
 
-        return Inertia::render('Public/ApplySuccess', ['lead' => ['code' => $lead->code, 'name' => $lead->full_name]]);
+        return Inertia::render('Public/ApplySuccess', [
+            'lead' => ['code' => $lead->code, 'name' => $lead->full_name],
+            'whatsappUrl' => $this->supportWhatsappUrl("Hola, soy {$lead->full_name}. Necesito ayuda con mi aplicación {$lead->code} de The Velvet Studio."),
+        ]);
     }
 
     public function prequalification(Request $request, Candidate $candidate, string $token): Response
@@ -121,6 +126,7 @@ class RecruitmentController extends Controller
     {
         return Inertia::render('Public/PrequalificationSuccess', [
             'candidate' => $request->session()->get('prequalification_completed'),
+            'whatsappUrl' => $this->supportWhatsappUrl('Hola, terminé mi precalificación y necesito ayuda con el siguiente paso de mi proceso en The Velvet Studio.'),
         ]);
     }
 
@@ -195,6 +201,7 @@ class RecruitmentController extends Controller
             report($exception);
         }
 
+        app(CandidateWorkflowAutomationService::class)->continueAfterPrequalification($candidate->fresh('lead'));
         $lead = $candidate->load('lead')->lead->fresh('candidate');
         $this->publishLeadEvent($lead, 'candidate.prequalification_completed', [
             'candidate_id' => $candidate->id,
@@ -405,6 +412,8 @@ class RecruitmentController extends Controller
             }
             $summary['failure_reason'] = 'Didit aprobó el documento, pero no coincide ' . implode(' ni ', $reasons) . ' registrada en el onboarding.';
         }
+
+        $summary['images'] = app(DiditEvidenceService::class)->archive($candidate, $summary['images']);
 
         $sameDecision = $candidate->didit_session_id === ($sessionId ?: $candidate->didit_session_id)
             && $candidate->identity_verification_status === $status;
@@ -759,6 +768,49 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    public function diditEvidence(Candidate $candidate, string $image)
+    {
+        $evidence = collect($candidate->identity_verification_data['images'] ?? [])
+            ->first(fn ($item) => ($item['key'] ?? null) === $image);
+        abort_unless(is_array($evidence) && ! empty($evidence['path']), 404);
+
+        $disk = config('services.didit.evidence_disk', 'local');
+        abort_unless(Storage::disk($disk)->exists($evidence['path']), 404);
+        $stream = Storage::disk($disk)->readStream($evidence['path']);
+        abort_unless(is_resource($stream), 404);
+
+        return response()->stream(function () use ($stream): void {
+            fpassthru($stream);
+            fclose($stream);
+        }, 200, [
+            'Content-Type' => $evidence['mime_type'] ?? 'application/octet-stream',
+            'Content-Disposition' => 'inline; filename="didit-' . $image . '"',
+            'Cache-Control' => 'private, max-age=300',
+        ]);
+    }
+
+    public function refreshDiditValidation(Candidate $candidate): JsonResponse
+    {
+        abort_unless($candidate->didit_session_id, 404);
+
+        $decision = Http::timeout(20)
+            ->acceptJson()
+            ->withHeaders(['x-api-key' => config('services.didit.api_key')])
+            ->get(rtrim(config('services.didit.base_url'), '/') . "/v3/session/{$candidate->didit_session_id}/decision/");
+
+        if (! $decision->successful() || ! is_array($decision->json())) {
+            return response()->json(['message' => 'Didit no devolvió una decisión para esta sesión.'], 422);
+        }
+
+        $this->syncDiditDecision($candidate, $decision->json(), $candidate->didit_session_id);
+        $candidate->refresh();
+
+        return response()->json([
+            'status' => $candidate->identity_verification_status,
+            'data' => $candidate->identity_verification_data,
+        ]);
+    }
+
     public function lead(Lead $lead): Response
     {
         $lead->load(['activities.user', 'candidate.activities.user', 'documents']);
@@ -780,12 +832,23 @@ class RecruitmentController extends Controller
         ])]);
     }
 
-    public function updateLeadStatus(Request $request, Lead $lead, InterviewInvitationService $invitationService, ApplicationDiscardMailService $discardMail, AdmittedMailService $admittedMail): RedirectResponse
+    public function updateLeadStatus(Request $request, Lead $lead, InterviewInvitationService $invitationService, ApplicationDiscardMailService $discardMail, AdmittedMailService $admittedMail, ConvertLeadToCandidate $convert, CandidateWorkflowAutomationService $automation): RedirectResponse
     {
         $lead->loadMissing('candidate.user');
         $allowed = $lead->candidate ? CandidateStatus::cases() : LeadStatus::cases();
         $validated = $request->validate(['status' => ['required', Rule::in(array_map(fn ($status) => $status->value, $allowed))]]);
         $previous = $lead->candidate?->status?->value ?: $lead->status?->value;
+
+        // Marcar un lead como calificado lo incorpora automáticamente al
+        // proceso de selección y dispara la precalificación. El endpoint
+        // explícito de conversión se conserva como fallback idempotente.
+        if (! $lead->candidate && $validated['status'] === LeadStatus::QUALIFIED->value) {
+            $candidate = $convert->handle($lead);
+            $automation->start($candidate);
+
+            return back()->with('success', "Lead convertido a {$candidate->code}; se inició la precalificación automática.");
+        }
+
         $discardTransition = $validated['status'] === CandidateStatus::DISCARDED->value
             && $previous !== CandidateStatus::DISCARDED->value
             && $previous !== LeadStatus::DISCARDED->value;
@@ -963,9 +1026,10 @@ class RecruitmentController extends Controller
         return to_route('admin.leads')->with('success', 'Lead descartado correctamente.');
     }
 
-    public function convert(Lead $lead, ConvertLeadToCandidate $convert): RedirectResponse
+    public function convert(Lead $lead, ConvertLeadToCandidate $convert, CandidateWorkflowAutomationService $automation): RedirectResponse
     {
         $candidate = $convert->handle($lead);
+        $automation->start($candidate);
         $activity = $lead->activities()->latest('id')->first();
         $leadId = $lead->id;
         $candidateId = $candidate->id;
@@ -1185,6 +1249,7 @@ class RecruitmentController extends Controller
 
         return Inertia::render('Admin/Recruitment/Candidates/Show', [
             'candidate' => $candidate,
+            'identityRetryAvailable' => $this->identityVerificationNeedsRetry($candidate),
             'contracting' => [
                 'available_slots' => ContractSlot::query()
                     ->where('status', 'AVAILABLE')
@@ -1212,6 +1277,50 @@ class RecruitmentController extends Controller
                     : [],
             ],
         ]);
+    }
+
+    public function requestIdentityVerificationRetry(Request $request, Candidate $candidate): RedirectResponse
+    {
+        $candidate->loadMissing('lead');
+        if (! $this->identityVerificationNeedsRetry($candidate)) {
+            return back()->withErrors(['identity_verification' => 'Este perfil no requiere una nueva verificación.']);
+        }
+        if (! $this->diditIsConfigured()) {
+            return back()->withErrors(['identity_verification' => 'Didit no está configurado en este entorno.']);
+        }
+
+        $previousSession = $candidate->didit_session_id;
+        $token = Str::random(64);
+        $expiresAt = now()->addDays(7);
+        $formUrl = URL::temporarySignedRoute('prequalification.show', $expiresAt, ['candidate' => $candidate->id, 'token' => $token]);
+
+        try {
+            Mail::to($candidate->lead->email)->send(new PrequalificationFormMail($candidate, $formUrl, true));
+        } catch (\Throwable $exception) {
+            report($exception);
+            return back()->withErrors(['identity_verification' => 'No se pudo enviar la solicitud de nueva verificación.']);
+        }
+
+        $candidate->update([
+            'identity_verification_status' => 'NOT_STARTED',
+            'identity_verification_data' => null,
+            'identity_verification_failure_reason' => null,
+            'identity_verified_at' => null,
+            'identity_verification_url' => null,
+            'didit_session_id' => null,
+            'prequalification_token_hash' => hash('sha256', $token),
+            'prequalification_sent_at' => now(),
+            'prequalification_expires_at' => $expiresAt,
+        ]);
+        CandidateActivity::create([
+            'candidate_id' => $candidate->id,
+            'user_id' => $request->user()->id,
+            'type' => 'identity_verification_retry_requested',
+            'description' => 'Se solicitó una nueva verificación de identidad.',
+            'metadata' => ['previous_session_id' => $previousSession, 'expires_at' => $expiresAt->toIso8601String()],
+        ]);
+
+        return back()->with('success', 'Solicitud de nueva verificación enviada correctamente.');
     }
 
     public function startContracting(Request $request, Candidate $candidate): RedirectResponse
@@ -1702,10 +1811,13 @@ class RecruitmentController extends Controller
 
         if ($nextStatus === CandidateStatus::ACTIVE && $previousStatus !== CandidateStatus::ACTIVE) {
             try {
-                Mail::to($candidate->lead->email)->send(new CandidateActivatedMail($candidate));
+                // Do not hold the status transition open while the SMTP provider connects.
+                // The queued mailable keeps activation reliable even when SMTP is slow or
+                // temporarily unavailable; the queue worker can retry delivery separately.
+                Mail::to($candidate->lead->email)->queue(new CandidateActivatedMail($candidate));
             } catch (\Throwable $exception) {
                 report($exception);
-                return back()->withErrors(['status' => 'El perfil fue activado, pero no fue posible enviar el correo de confirmación. Revisa la configuración de correo.']);
+                return back()->with('warning', 'El perfil fue activado, pero el correo de confirmación quedó pendiente. Revisa la cola de correo.');
             }
         }
 
@@ -1852,6 +1964,26 @@ class RecruitmentController extends Controller
             && (app()->environment('local') || data_get($candidate->identity_verification_data ?? [], 'age_verified') === true);
     }
 
+    private function identityVerificationNeedsRetry(Candidate $candidate): bool
+    {
+        if (! in_array($candidate->candidate_type?->value, ['MODEL', 'MONITOR'], true)) {
+            return false;
+        }
+
+        if (in_array($candidate->identity_verification_status, ['DECLINED', 'EXPIRED', 'ABANDONED', 'IN_REVIEW'], true)) {
+            return true;
+        }
+
+        if ($candidate->identity_verification_status !== 'APPROVED') {
+            return false;
+        }
+
+        $disk = config('services.didit.evidence_disk', 'local');
+        $images = $candidate->identity_verification_data['images'] ?? [];
+
+        return empty($images) || collect($images)->contains(fn ($image) => empty($image['path']) || ! Storage::disk($disk)->exists($image['path']));
+    }
+
     private function diditSignatureIsValid(Request $request, string $rawBody, string $secret): bool
     {
         $signatureV2 = $request->header('X-Signature-V2');
@@ -1969,7 +2101,7 @@ class RecruitmentController extends Controller
             foreach ($value as $key => $child) {
                 $normalizedKey = Str::of((string) $key)->lower()->replace(['-', ' '], '_')->toString();
                 if (isset($allowed[$normalizedKey]) && is_string($child) && filter_var($child, FILTER_VALIDATE_URL) && Str::startsWith($child, 'https://')) {
-                    $images[$normalizedKey] = ['label' => $allowed[$normalizedKey], 'url' => $child];
+                    $images[$normalizedKey] = ['key' => $normalizedKey, 'label' => $allowed[$normalizedKey], 'source_url' => $child];
                     continue;
                 }
                 $walk($child);
@@ -2031,5 +2163,14 @@ class RecruitmentController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function supportWhatsappUrl(string $message): ?string
+    {
+        $phone = preg_replace('/\D+/', '', (string) config('services.velvet.whatsapp_number'));
+        if (! $phone) return null;
+        if (! str_starts_with($phone, '57')) $phone = '57'.$phone;
+
+        return 'https://wa.me/'.$phone.'?text='.rawurlencode($message);
     }
 }

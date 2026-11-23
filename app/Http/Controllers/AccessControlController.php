@@ -12,11 +12,18 @@ use Inertia\Response;
 
 class AccessControlController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        $roles = Role::with('permissions')->withCount('users')->orderBy('name');
+
+        if (! $request->user()->hasRole('super_admin')) {
+            $roles->where('slug', '!=', 'super_admin');
+        }
+
         return Inertia::render('Admin/Access/Index', [
-            'roles' => Role::with('permissions')->withCount('users')->orderBy('name')->get(),
+            'roles' => $roles->get(),
             'permissionCount' => Permission::count(),
+            'canManageSuperAdmin' => $request->user()->hasRole('super_admin'),
         ]);
     }
 
@@ -39,8 +46,10 @@ class AccessControlController extends Controller
         return to_route('admin.access.index')->with('success', 'Rol creado correctamente.');
     }
 
-    public function edit(Role $role): Response
+    public function edit(Request $request, Role $role): Response
     {
+        $this->authorizeRoleManagement($request, $role);
+
         return Inertia::render('Admin/Access/RoleForm', [
             'role' => $role->load('permissions'),
             'permissionGroups' => $this->permissionGroups(),
@@ -50,6 +59,7 @@ class AccessControlController extends Controller
 
     public function update(Request $request, Role $role): RedirectResponse
     {
+        $this->authorizeRoleManagement($request, $role);
         $data = $this->validated($request, $role);
         $role->update(collect($data)->except('permissions')->all());
         $role->permissions()->sync($data['permissions'] ?? []);
@@ -77,6 +87,11 @@ class AccessControlController extends Controller
             'permissions' => ['nullable', 'array'],
             'permissions.*' => ['integer', 'exists:permissions,id'],
         ]);
+    }
+
+    private function authorizeRoleManagement(Request $request, Role $role): void
+    {
+        abort_if($role->slug === 'super_admin' && ! $request->user()->hasRole('super_admin'), 403);
     }
 
     private function permissionGroups(): array

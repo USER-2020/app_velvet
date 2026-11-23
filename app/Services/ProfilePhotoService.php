@@ -31,14 +31,20 @@ class ProfilePhotoService
             return false;
         }
 
-        $url = $this->portraitUrl($candidate->identity_verification_data ?? []);
-        if (! $url) {
+        $portrait = $this->portraitImage($candidate->identity_verification_data ?? []);
+        if (! $portrait) {
             return false;
         }
 
         try {
-            $response = Http::timeout(10)->withoutRedirecting()->get($url);
-            $contents = $response->successful() ? $response->body() : null;
+            $disk = config('services.didit.evidence_disk', 'local');
+            $contents = null;
+            if (is_string($portrait['path'] ?? null) && Storage::disk($disk)->exists($portrait['path'])) {
+                $contents = Storage::disk($disk)->get($portrait['path']);
+            } elseif (is_string($portrait['url'] ?? null)) {
+                $response = Http::timeout(10)->withoutRedirecting()->get($portrait['url']);
+                $contents = $response->successful() ? $response->body() : null;
+            }
             if (! is_string($contents) || strlen($contents) > self::MAX_BYTES || ! $this->isSupportedImage($contents)) {
                 return false;
             }
@@ -53,14 +59,14 @@ class ProfilePhotoService
         }
     }
 
-    private function portraitUrl(array $identityData): ?string
+    private function portraitImage(array $identityData): ?array
     {
         $images = collect($identityData['images'] ?? []);
         foreach (['selfie', 'facial', 'face', 'retrato', 'portrait'] as $needle) {
             $image = $images->first(fn ($item) => str_contains(mb_strtolower((string) ($item['label'] ?? '')), $needle));
             $url = $image['url'] ?? null;
-            if (is_string($url) && filter_var($url, FILTER_VALIDATE_URL) && Str::startsWith($url, 'https://')) {
-                return $url;
+            if (is_string($image['path'] ?? null) || (is_string($url) && filter_var($url, FILTER_VALIDATE_URL) && Str::startsWith($url, 'https://'))) {
+                return $image;
             }
         }
 

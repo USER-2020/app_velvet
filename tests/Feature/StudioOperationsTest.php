@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Candidate;
+use App\Mail\RoomReservationScheduledMail;
 use App\Models\Lead;
 use App\Models\ModelMonitorAssignment;
 use App\Models\OperationalShift;
@@ -16,6 +17,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\VelvetMasterOperationalPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class StudioOperationsTest extends TestCase
@@ -127,6 +129,72 @@ class StudioOperationsTest extends TestCase
         $this->assertDatabaseHas('shift_attendances', ['operational_shift_id' => $shift->id, 'status' => 'COMPLETED']);
         $this->assertDatabaseHas('operational_sessions', ['room_reservation_id' => $reservation->id, 'status' => 'COMPLETED']);
         $this->assertNotNull(DB::table('operational_sessions')->where('room_reservation_id', $reservation->id)->value('ended_at'));
+    }
+
+    public function test_monitor_reservation_keeps_the_selected_bogota_date_and_time(): void
+    {
+        $monitorUser = User::factory()->create(['is_active' => true])->assignRole('monitor');
+        $monitor = $this->candidate('MONITOR');
+        $monitor->update(['user_id' => $monitorUser->id]);
+        $model = $this->candidate('MODEL');
+        ModelMonitorAssignment::create(['model_candidate_id' => $model->id, 'monitor_candidate_id' => $monitor->id, 'assigned_at' => now()]);
+        $room = Room::create(['code' => 'ROOM-DATETIME', 'name' => 'Sala de fechas', 'status' => 'AVAILABLE', 'is_active' => true, 'created_by' => $monitorUser->id]);
+        $selectedStart = Carbon::create(2026, 12, 15, 10, 30, 0, 'America/Bogota');
+        $selectedEnd = $selectedStart->copy()->addHours(2);
+
+        $this->actingAs($monitorUser)->post('/monitor/rooms/reservations', [
+            'room_id' => $room->id,
+            'candidate_id' => $model->id,
+            'purpose' => 'Sesión de estudio',
+            'starts_at' => $selectedStart->format('Y-m-d\\TH:i'),
+            'ends_at' => $selectedEnd->format('Y-m-d\\TH:i'),
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $reservation = RoomReservation::query()->latest('id')->firstOrFail();
+        $this->assertSame($selectedStart->utc()->format('Y-m-d H:i:s'), $reservation->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($selectedEnd->utc()->format('Y-m-d H:i:s'), $reservation->ends_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('10:30', $reservation->starts_at->timezone('America/Bogota')->format('H:i'));
+        $this->assertSame('12:30', $reservation->ends_at->timezone('America/Bogota')->format('H:i'));
+    }
+
+    public function test_monitor_can_schedule_a_batch_without_room_overlap_and_notifies_the_model(): void
+    {
+        Mail::fake();
+        $monitorUser = User::factory()->create(['is_active' => true])->assignRole('monitor');
+        $monitor = $this->candidate('MONITOR');
+        $monitor->update(['user_id' => $monitorUser->id]);
+        $modelUser = User::factory()->create(['is_active' => true])->assignRole('model');
+        $model = $this->candidate('MODEL');
+        $model->update(['user_id' => $modelUser->id]);
+        $otherModel = $this->candidate('MODEL');
+        ModelMonitorAssignment::create(['model_candidate_id' => $model->id, 'monitor_candidate_id' => $monitor->id, 'assigned_at' => now()]);
+        ModelMonitorAssignment::create(['model_candidate_id' => $otherModel->id, 'monitor_candidate_id' => $monitor->id, 'assigned_at' => now()]);
+        $room = Room::create(['code' => 'ROOM-BATCH', 'name' => 'Sala de lotes', 'status' => 'AVAILABLE', 'is_active' => true, 'created_by' => $monitorUser->id]);
+        $firstStart = Carbon::now('America/Bogota')->addDays(2)->setTime(9, 0);
+        $secondStart = $firstStart->copy()->addHours(4);
+        $payload = fn (Carbon $start) => ['starts_at' => $start->format('Y-m-d\\TH:i'), 'ends_at' => $start->copy()->addHours(2)->format('Y-m-d\\TH:i')];
+
+        $this->actingAs($monitorUser)->post('/monitor/rooms/reservations', [
+            'room_id' => $room->id,
+            'candidate_id' => $model->id,
+            'purpose' => 'Sesión por lotes',
+            'slots' => [$payload($firstStart), $payload($secondStart)],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame(2, RoomReservation::where('room_id', $room->id)->count());
+        $this->assertSame(2, $model->activities()->where('type', 'room_reservation_scheduled')->count());
+        $this->assertSame(2, $modelUser->notifications()->where('type', 'room.reservation.created')->count());
+        Mail::assertQueued(RoomReservationScheduledMail::class, 2);
+
+        $this->actingAs($monitorUser)->post('/monitor/rooms/reservations', [
+            'room_id' => $room->id,
+            'candidate_id' => $otherModel->id,
+            'purpose' => 'Sesión cruzada',
+            'slots' => [$payload($firstStart->copy()->addMinutes(30))],
+        ])->assertSessionHasErrors('slots.0.starts_at');
+
+        $this->assertSame(2, RoomReservation::where('room_id', $room->id)->count());
+        $this->assertSame(2, $model->activities()->where('type', 'room_reservation_scheduled')->count());
     }
 
     public function test_active_model_can_register_operational_request(): void

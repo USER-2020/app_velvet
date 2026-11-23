@@ -9,8 +9,8 @@ export function initializeGoogleAnalytics() {
     if (!measurementId || typeof window === 'undefined' || typeof document === 'undefined') return false;
 
     window.dataLayer = window.dataLayer || [];
-    window.gtag = window.gtag || function (...args) {
-        window.dataLayer.push(args);
+    window.gtag = window.gtag || function () {
+        window.dataLayer.push(arguments);
     };
 
     if (!document.getElementById(SCRIPT_ID)) {

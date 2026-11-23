@@ -5,8 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\Candidate;
 use App\Models\PlatformCatalog;
 use App\Models\StudioAccount;
+use App\Models\ModelPlatformAccount;
+use App\Services\CamGirlFinderService;
 use App\Services\Platforms\PlatformAdapterRegistry;
+use App\Services\Platforms\ChaturbateApiService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +26,7 @@ class MasterOperationsController extends Controller
     {
         $this->authorizePermission($request, 'platforms.view');
         return Inertia::render('Admin/Platforms/Index', [
-            'platforms' => PlatformCatalog::query()->with('studioAccounts')->orderBy('name')->get()->map(fn ($item) => ['id' => $item->id, 'code' => $item->code, 'name' => $item->name, 'adapter_key' => $item->adapter_key, 'is_active' => $item->is_active, 'accounts' => $item->studioAccounts->map(fn ($account) => ['id' => $account->id, 'name' => $account->name, 'status' => $account->status, 'connection_mode' => $account->connection_mode, 'legal_holder' => $account->legal_holder, 'last_error' => $account->last_error, 'last_synced_at' => $account->last_synced_at?->toIso8601String()])])->values(),
+            'platforms' => PlatformCatalog::query()->with('studioAccounts')->orderBy('name')->get()->map(fn ($item) => ['id' => $item->id, 'code' => $item->code, 'name' => $item->name, 'adapter_key' => $item->adapter_key, 'is_active' => $item->is_active, 'accounts' => $item->studioAccounts->map(fn ($account) => ['id' => $account->id, 'name' => $account->name, 'status' => $account->status, 'connection_mode' => $account->connection_mode, 'provider_key' => $account->provider_key, 'legal_holder' => $account->legal_holder, 'last_error' => $account->last_error, 'last_synced_at' => $account->last_synced_at?->toIso8601String(), 'metadata' => $account->metadata])])->values(),
             'models' => Candidate::query()->with('lead:id,first_name,last_name')->where('candidate_type', 'MODEL')->where('status', 'ACTIVE')->get(['id','code','lead_id'])->map(fn ($item) => ['id' => $item->id, 'name' => $item->lead?->full_name, 'code' => $item->code])->values(),
         ]);
     }
@@ -43,14 +47,119 @@ class MasterOperationsController extends Controller
         return back()->with('success', 'Cuenta Studio registrada sin habilitar ninguna conexion real.');
     }
 
-    public function linkModelAccount(Request $request, StudioAccount $studioAccount): RedirectResponse
+    public function connectChaturbate(Request $request, StudioAccount $studioAccount, ChaturbateApiService $chaturbate): RedirectResponse
+    {
+        $this->authorizePermission($request, 'studio_accounts.manage');
+        abort_unless(strtolower((string) $studioAccount->platform?->code) === 'chaturbate', 404);
+        $data = $request->validate([
+            'username' => ['nullable', 'string', 'max:80'],
+            'token' => ['nullable', 'string', 'size:24'],
+            'stats_url' => ['nullable', 'url', 'max:500'],
+            'events_url' => ['nullable', 'url', 'max:500'],
+        ]);
+
+        try {
+            $credentials = $chaturbate->credentialsFromInput($data);
+            $stats = $chaturbate->verify($credentials);
+        } catch (\Throwable $exception) {
+            return back()->withErrors(['chaturbate' => $exception->getMessage()])->withInput($request->except(['token', 'stats_url', 'events_url']));
+        }
+
+        $studioAccount->update([
+            'provider_key' => 'chaturbate',
+            'connection_mode' => 'LIVE',
+            'status' => 'CONNECTED',
+            'encrypted_credentials' => Crypt::encryptString(json_encode($credentials, JSON_THROW_ON_ERROR)),
+            'credentials_verified_at' => now(),
+            'last_synced_at' => now(),
+            'last_error' => null,
+            'metadata' => ['chaturbate' => $chaturbate->publicMetadata($stats)],
+        ]);
+
+        return back()->with('success', 'Cuenta de Chaturbate conectada y verificada.');
+    }
+
+    public function syncChaturbate(Request $request, StudioAccount $studioAccount, ChaturbateApiService $chaturbate): RedirectResponse
+    {
+        $this->authorizePermission($request, 'studio_accounts.manage');
+        abort_unless($studioAccount->provider_key === 'chaturbate' && $studioAccount->connection_mode === 'LIVE', 422);
+        try {
+            $stats = $chaturbate->stats($studioAccount);
+            $studioAccount->update(['status' => 'CONNECTED', 'last_synced_at' => now(), 'last_error' => null, 'metadata' => ['chaturbate' => $chaturbate->publicMetadata($stats)]]);
+        } catch (\Throwable $exception) {
+            report($exception);
+            $studioAccount->update(['status' => 'ERROR', 'last_error' => 'No fue posible sincronizar Chaturbate.']);
+            return back()->withErrors(['account' => 'No fue posible sincronizar Chaturbate.']);
+        }
+        return back()->with('success', 'Estadísticas de Chaturbate actualizadas.');
+    }
+
+    public function linkModelAccount(Request $request, StudioAccount $studioAccount, CamGirlFinderService $camGirlFinder): RedirectResponse
     {
         $this->authorizePermission($request, 'studio_accounts.manage');
         $data = $request->validate(['candidate_id' => ['required','exists:candidates,id'], 'account_identifier' => ['required','string','max:180'], 'ownership_type' => ['required', Rule::in(['STUDIO','MODEL','THIRD_PARTY'])], 'is_authorized' => ['required','boolean'], 'notes' => ['nullable','string','max:2000']]);
         $candidate = Candidate::findOrFail($data['candidate_id']);
         if ($candidate->candidate_type?->value !== 'MODEL') throw ValidationException::withMessages(['candidate_id' => 'Solo se pueden vincular cuentas a modelos.']);
-        DB::table('model_platform_accounts')->updateOrInsert(['studio_account_id' => $studioAccount->id, 'account_identifier' => $data['account_identifier']], [...$data, 'studio_account_id' => $studioAccount->id, 'linked_at' => now(), 'linked_by' => $request->user()->id, 'updated_at' => now(), 'created_at' => now()]);
+        $platformAccount = ModelPlatformAccount::updateOrCreate(
+            ['studio_account_id' => $studioAccount->id, 'account_identifier' => $data['account_identifier']],
+            [...$data, 'linked_at' => now(), 'linked_by' => $request->user()->id, 'status' => 'PENDING', 'unlinked_at' => null],
+        );
+        $this->runNicknameCheck($platformAccount, $candidate, $studioAccount->platform?->code, $camGirlFinder);
         return back()->with('success', 'Cuenta de plataforma vinculada de forma auditable.');
+    }
+
+    public function discoverModelIdentity(Request $request, CamGirlFinderService $camGirlFinder): JsonResponse
+    {
+        $this->authorizePermission($request, 'studio_accounts.manage');
+        $data = $request->validate(['candidate_id' => ['required', 'integer', 'exists:candidates,id']]);
+        $candidate = Candidate::query()->where('candidate_type', 'MODEL')->findOrFail($data['candidate_id']);
+
+        try {
+            return response()->json($camGirlFinder->discover($candidate));
+        } catch (\Throwable $exception) {
+            report($exception);
+            return response()->json([
+                'provider' => 'camgirlfinder',
+                'status' => 'pending',
+                'message' => config('app.debug') ? $exception->getMessage() : 'No fue posible completar la búsqueda preventiva.',
+                'error_type' => class_basename($exception),
+                'matches' => [],
+            ], 502);
+        }
+    }
+
+    public function validateModelNickname(Request $request, CamGirlFinderService $camGirlFinder): JsonResponse
+    {
+        $this->authorizePermission($request, 'studio_accounts.manage');
+        $data = $request->validate(['nickname' => ['required', 'string', 'min:3', 'max:50'], 'platform' => ['required', 'string', 'max:60']]);
+
+        try {
+            return response()->json($camGirlFinder->validateNickname($data['nickname'], $data['platform']));
+        } catch (\Throwable $exception) {
+            report($exception);
+            return response()->json([
+                'provider' => 'camgirlfinder',
+                'status' => 'pending',
+                'message' => config('app.debug') ? $exception->getMessage() : 'No fue posible validar el nickname.',
+                'error_type' => class_basename($exception),
+                'matches' => [],
+            ], 502);
+        }
+    }
+
+    private function runNicknameCheck(ModelPlatformAccount $account, Candidate $candidate, ?string $platform, CamGirlFinderService $camGirlFinder): void
+    {
+        try {
+            $result = $camGirlFinder->check($candidate, $account->account_identifier, (string) $platform);
+            $account->update(['nickname_check_status' => $result['status'], 'nickname_check_data' => $result, 'nickname_checked_at' => now()]);
+        } catch (\Throwable $exception) {
+            report($exception);
+            $account->update([
+                'nickname_check_status' => 'pending',
+                'nickname_check_data' => ['provider' => 'camgirlfinder', 'status' => 'pending', 'message' => 'No fue posible completar la validación preventiva.'],
+                'nickname_checked_at' => now(),
+            ]);
+        }
     }
 
     public function simulateSync(Request $request, StudioAccount $studioAccount, PlatformAdapterRegistry $registry): RedirectResponse

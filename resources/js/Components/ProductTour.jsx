@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { usePage } from '@inertiajs/react';
-import { FiHelpCircle } from 'react-icons/fi';
+import { FiHelpCircle, FiMessageCircle } from 'react-icons/fi';
 import { useAuthorization } from '@/lib/authorization';
 import { productTours, TOUR_VERSION, tourKeyForPath } from '@/lib/productTours';
 
@@ -12,6 +12,8 @@ export default function ProductTour() {
     const autoStartedTours = useRef(new Set());
     const activeTour = useRef(false);
     const pendingObserver = useRef(null);
+    const [launcherOpen, setLauncherOpen] = useState(false);
+    const launcherRef = useRef(null);
     const progress = page.props.tourProgress || {};
     const toursEnabled = page.props.guidedTours?.enabled ?? true;
     const tourKey = tourKeyForPath(page.url);
@@ -121,9 +123,35 @@ export default function ProductTour() {
     useEffect(() => () => pendingObserver.current?.disconnect(), []);
 
     useEffect(() => {
+        const startRequestedTour = (event) => {
+            const key = event.detail?.key;
+            if (key) startTour(key);
+        };
+        window.addEventListener('velvet-tour:start', startRequestedTour);
+        return () => window.removeEventListener('velvet-tour:start', startRequestedTour);
+    }, [startTour]);
+
+    useEffect(() => {
         pendingObserver.current?.disconnect();
         pendingObserver.current = null;
+        setLauncherOpen(false);
     }, [page.url]);
+
+    useEffect(() => {
+        if (!launcherOpen) return undefined;
+        const closeOnEscape = (event) => {
+            if (event.key === 'Escape') setLauncherOpen(false);
+        };
+        const closeOnOutside = (event) => {
+            if (!launcherRef.current?.contains(event.target)) setLauncherOpen(false);
+        };
+        window.addEventListener('keydown', closeOnEscape);
+        window.addEventListener('pointerdown', closeOnOutside);
+        return () => {
+            window.removeEventListener('keydown', closeOnEscape);
+            window.removeEventListener('pointerdown', closeOnOutside);
+        };
+    }, [launcherOpen]);
 
     useEffect(() => {
         const welcome = progress['platform-welcome'];
@@ -141,7 +169,24 @@ export default function ProductTour() {
         startTour(tourKey, true);
     }, [isInternalModule, path, progress, startTour, tourKey, toursEnabled]);
 
-    if (!user || !isInternalModule || !toursEnabled) return null;
+    const canUseAi = can('ai.chat') && page.props.groqAssistant?.enabled;
+    if (!user || ((!isInternalModule || !toursEnabled) && !canUseAi)) return null;
 
-    return <button type="button" onClick={() => startTour(tourKey)} className="group fixed bottom-5 right-5 z-[60] inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-[#88429a] bg-[#27142f] text-xs font-semibold text-[#f5d4fc] shadow-[0_12px_30px_rgba(0,0,0,.35)] transition-[width,border-color,background-color] duration-300 ease-out hover:w-36 hover:border-[#d56bea] hover:bg-[#3a1a46] focus-visible:w-36 focus-visible:border-[#d56bea] focus-visible:bg-[#3a1a46] focus-visible:outline-none" aria-label="Repetir guía de este módulo"><FiHelpCircle size={18} className="shrink-0" /><span className="max-w-0 translate-x-2 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity,transform] duration-300 ease-out group-hover:ml-2 group-hover:max-w-24 group-hover:translate-x-0 group-hover:opacity-100 group-focus-visible:ml-2 group-focus-visible:max-w-24 group-focus-visible:translate-x-0 group-focus-visible:opacity-100">Repetir guía</span></button>;
+    const openAi = () => {
+        setLauncherOpen(false);
+        const button = document.querySelector('.velvet-launcher-toggle');
+        const rect = button?.getBoundingClientRect();
+        window.dispatchEvent(new CustomEvent('velvet-ai:open', {
+            detail: rect ? { right: window.innerWidth - rect.right, bottom: window.innerHeight - rect.top } : undefined,
+        }));
+    };
+
+    return <div ref={launcherRef} className={`velvet-launcher fixed bottom-5 right-5 z-[70] ${launcherOpen ? 'is-open' : ''}`}>
+        {launcherOpen && <div className="velvet-launcher-actions">
+            {canUseAi && <button type="button" onClick={openAi} data-tour="ai-chatbot-action" className="velvet-launcher-action" aria-label="Abrir Velvet AI"><FiMessageCircle size={17} /><span>Velvet AI</span></button>}
+            {toursEnabled && <button type="button" onClick={() => { setLauncherOpen(false); startTour(tourKey); }} className="velvet-launcher-action" aria-label="Repetir guía de este módulo"><FiHelpCircle size={17} /><span>Repetir guía</span></button>}
+        </div>}
+        <button type="button" onClick={() => setLauncherOpen((current) => !current)} data-tour="ai-chatbot" aria-expanded={launcherOpen} aria-label={launcherOpen ? 'Cerrar accesos rápidos' : 'Abrir accesos rápidos'} className="velvet-launcher-toggle"><FiMessageCircle size={20} /></button>
+    </div>;
+
 }

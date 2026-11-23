@@ -84,6 +84,12 @@ La misma prueba cubre la persistencia secuencial por requisito y que el estado `
 
 `StudioOperationsTest` cubre el inicio y cierre de una reserva: verifica `IN_USE`/`COMPLETED`, apertura y cierre de asistencia, sincronización de `OperationalShift` y persistencia de `operational_sessions`. El build frontend se valida con `npm run build`.
 
+`StudioOperationsTest` también cubre la programación por lotes: dos franjas
+válidas crean dos reservas, una franja que cruza una room ya ocupada devuelve
+un error de validación y no crea registros parciales. La misma regresión
+comprueba la actividad de bitácora, la notificación dirigida a la modelo y los
+dos correos con `.ics`.
+
 `RecruitmentTest::test_admin_can_preview_a_stored_document` cubre la preview
 administrativa de un archivo privado. El controlador usa
 `Gate::authorize('view', $document)` porque el controlador base de la
@@ -120,7 +126,7 @@ Las cuentas Studio de plataformas no se configuran desde `.env`: sus secretos au
 | Tour no aparece | `guidedTours.enabled`, progreso/version, `tourKeyForPath`, permisos y selectores montados. |
 | Tour aparece sobre carga | `ProductTour`, `.apply-intro-overlay`, `.dashboard-route-skeleton` y evento `velvet-intro-overlay-complete`. |
 | No llega correo | `MAIL_MAILER`, mailable, cola/log local y prueba con `Mail::fake()`. |
-| No hay realtime | `ABLY_API_KEY`, canal, `RealtimePublisher`; la operación base debe seguir funcionando. |
+| No hay realtime | `ABLY_API_KEY`, `VITE_ABLY_ENABLED`, canal de rooms y `RealtimePublisher`; la operación base debe seguir funcionando aunque Ably esté desactivado. |
 | Portal muestra datos inesperados | `EnsureActiveOperationalProfile`, estado `ACTIVE`, `training_mode` y `TrainingRecord`. |
 | Doble conversión/reserva | transacción, bloqueo, índice único y prueba de reintento. |
 | Build falla | `npm ci`, versión Node, imports, Vite y rutas de assets; no modificar `.env` para ocultar el error. |

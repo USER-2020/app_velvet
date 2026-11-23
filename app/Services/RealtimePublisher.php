@@ -27,13 +27,13 @@ class RealtimePublisher
     {
         $channel = $data['channel'] ?? $this->channelFor($event);
         if (isset($data['notification'])) {
-            app(NotificationService::class)->createForRoles(
-                $channel,
-                $event,
-                $data['notification'],
-                collect($data)->except('notification')->all(),
-                $data['notification_roles'] ?? [],
-            );
+            $notificationData = collect($data)->except(['notification', 'notification_roles', 'notification_user_ids'])->all();
+            $userIds = $data['notification_user_ids'] ?? [];
+            if ($userIds !== []) {
+                app(NotificationService::class)->createForUsers($userIds, $channel, $event, $data['notification'], $notificationData);
+            } else {
+                app(NotificationService::class)->createForRoles($channel, $event, $data['notification'], $notificationData, $data['notification_roles'] ?? []);
+            }
         }
         $apiKey = config('services.ably.api_key');
         if (! $apiKey || ! str_contains($apiKey, ':')) return;

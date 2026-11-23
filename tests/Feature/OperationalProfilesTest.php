@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Mail\CandidateAccessCredentialsMail;
+use App\Mail\CandidateActivatedMail;
 use App\Models\Candidate;
 use App\Models\Lead;
 use App\Models\ModelMonitorAssignment;
@@ -82,6 +83,10 @@ class OperationalProfilesTest extends TestCase
         $this->actingAs($recruiter)
             ->patch("/admin/candidates/{$candidate->id}/status", ['status' => 'ACTIVE'])
             ->assertRedirect();
+
+        Mail::assertQueued(CandidateActivatedMail::class, function (CandidateActivatedMail $mail) use ($candidate): bool {
+            return $mail->candidate->is($candidate);
+        });
 
         $this->assertDatabaseHas('candidates', ['id' => $candidate->id, 'status' => 'ACTIVE']);
         $this->assertDatabaseHas('operational_profiles', [
@@ -258,7 +263,11 @@ class OperationalProfilesTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Portal/Model/Profile')
                 ->where('profile.code', $model->code)
-                ->where('profile.personal.email', $model->lead->email));
+                ->where('profile.personal.email', $model->lead->email)
+                ->where('profile.personal.phone', $model->lead->phone)
+                ->where('profile.personal.city', $model->lead->city)
+                ->where('profile.personal.availability', $model->lead->availability)
+                ->where('profile.personal.work_mode', $model->lead->work_mode));
 
         $this->actingAs($modelUser)
             ->get('/model/dashboard')

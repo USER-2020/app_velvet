@@ -8,6 +8,7 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Database\Seeders\VelvetMasterOperationalPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class PlatformProductivityAdministrationTest extends TestCase
@@ -41,6 +42,26 @@ class PlatformProductivityAdministrationTest extends TestCase
 
         $this->actingAs($admin)->post("/admin/platforms/accounts/{$account->id}/import", ['original_name' => 'official.csv', 'content' => "date,tokens\n2026-10-12,1250"])->assertRedirect();
         $this->assertDatabaseHas('platform_import_batches', ['studio_account_id' => $account->id, 'rows_imported' => 1]);
+    }
+
+    public function test_admin_can_verify_and_connect_a_chaturbate_studio_account(): void
+    {
+        Http::fake([
+            'https://chaturbate.com/statsapi/*' => Http::response(['username' => 'thevelvetstudio8', 'token_balance' => 12, 'time_online' => 30], 200),
+            'https://eventsapi.chaturbate.com/events/*' => Http::response(['events' => [], 'nextUrl' => 'https://eventsapi.chaturbate.com/events/cursor'], 200),
+        ]);
+        $admin = User::factory()->create()->assignRole('admin');
+        $platform = \App\Models\PlatformCatalog::create(['code' => 'chaturbate', 'name' => 'Chaturbate', 'adapter_key' => 'chaturbate', 'is_active' => true]);
+        $this->actingAs($admin)->post('/admin/platforms/accounts', ['platform_catalog_id' => $platform->id, 'name' => 'Cuenta CB', 'connection_mode' => 'MANUAL'])->assertRedirect();
+        $account = \App\Models\StudioAccount::firstOrFail();
+        $token = 'abcdefghijklmnopqrstuvwx';
+        $this->actingAs($admin)->post("/admin/platforms/accounts/{$account->id}/chaturbate/connect", ['stats_url' => "https://chaturbate.com/statsapi/?username=thevelvetstudio8&token={$token}", 'events_url' => "https://eventsapi.chaturbate.com/events/thevelvetstudio8/{$token}/"])->assertRedirect();
+        $account->refresh();
+        $this->assertSame('LIVE', $account->connection_mode);
+        $this->assertSame('CONNECTED', $account->status);
+        $this->assertNotSame($token, $account->getRawOriginal('encrypted_credentials'));
+        $this->assertSame('thevelvetstudio8', $account->metadata['chaturbate']['username']);
+        Http::assertSent(fn ($request) => $request->url() === 'https://chaturbate.com/statsapi/?username=thevelvetstudio8&token='.$token);
     }
 
     public function test_sessions_do_not_duplicate_time_for_simultaneous_streams_and_metrics_are_auditable(): void

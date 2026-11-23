@@ -1,4 +1,4 @@
-export const TOUR_VERSION = 5;
+export const TOUR_VERSION = 10;
 
 const hasPermission = (permission) => (can) => !permission || can(permission);
 
@@ -83,6 +83,7 @@ export const productTours = {
         steps: [
             { element: 'a[href="/admin/validations"]', popover: { title: 'Validaciones', description: 'Aquí se concentran los documentos y requisitos pendientes de verificación.' } },
             { element: 'main h1', popover: { title: 'Revisa pendientes', description: 'Abre cada caso para aprobar, solicitar correcciones o continuar con el siguiente paso autorizado.' } },
+            { element: '[data-tour="didit-evidence-refresh"]', optional: true, popover: { title: 'Evidencias permanentes', description: 'Si un enlace temporal de Didit venció, actualiza la sesión para recuperar y guardar nuevamente sus documentos.' } },
             { element: 'main', popover: { title: 'Control documental', description: 'Esta revisión mantiene el proceso listo para onboarding o contratación.' } },
         ],
     },
@@ -119,9 +120,17 @@ export const productTours = {
         available: hasPermission('platforms.view'),
         steps: [
             { element: 'main h1', popover: { title: 'Cuentas Studio', description: 'Registra plataformas y cuentas sin habilitar conexiones externas.' } },
-            { element: '[data-tour="platform-safety"]', popover: { title: 'Proteccion de datos', description: 'Las credenciales se cifran y nunca se muestran. Usa Manual o Simulado hasta contar con una integracion oficial.' } },
+            { element: '[data-tour="platform-safety"]', popover: { title: 'Proteccion de datos', description: 'Las credenciales se cifran y nunca se muestran. Las conexiones oficiales solo se habilitan desde su flujo de verificación.' } },
             { element: '[data-tour="platform-accounts"]', popover: { title: 'Cuentas y simulaciones', description: 'Vincula cuentas de modelos y prueba un flujo simulado que no contacta al proveedor.' } },
             { element: '[data-tour="platform-import"]', popover: { title: 'Reportes oficiales', description: 'Registra importaciones manuales para conservar el origen y la trazabilidad de los datos.' } },
+            { element: '[data-tour="chaturbate-connect"]', optional: true, popover: { title: 'Conexión de Chaturbate', description: 'Pega las URLs oficiales generadas en Chaturbate. La master valida Stats API y cifra las credenciales antes de permitir sincronizaciones.' } },
+        ],
+    },
+    chaturbate: {
+        available: hasPermission('studio_accounts.manage'),
+        steps: [
+            { element: '[data-tour="chaturbate-connect"]', popover: { title: 'Conectar Chaturbate', description: 'Usa las URLs generadas por Chaturbate para validar la cuenta de estudio y guardar sus credenciales cifradas.' } },
+            { element: '[data-tour="platform-accounts"]', popover: { title: 'Sincronización segura', description: 'Desde la cuenta conectada puedes solicitar una actualización de Stats API. El Events API queda reservado para el proceso de eventos en segundo plano.' } },
         ],
     },
     productivity: {
@@ -174,6 +183,23 @@ export const productTours = {
             { element: '[data-tour="documentation-upload"]', popover: { title: 'Anexos y conocimiento interno', description: 'Carga archivos o escribe una nota para conservar documentación relevante junto al manual de la plataforma.' } },
         ],
     },
+    'documentation-flows': {
+        available: () => true,
+        steps: [
+            { element: '[data-tour="documentation-modules"]', popover: { title: 'Guías según tu acceso', description: 'El catálogo reúne las tareas que puedes consultar con los permisos de tu cuenta.' } },
+            { element: '[data-tour="documentation-guide-filters"]', popover: { title: 'Encuentra un procedimiento', description: 'Busca por nombre de módulo o elige el área que necesitas.' } },
+            { element: '[data-tour="documentation-guide-detail"]', optional: true, popover: { title: 'Practica el paso a paso', description: 'Elige un flujo para leer sus pasos, reproducir la demostración o abrir el módulo en el dashboard.' } },
+            { element: '[data-tour="documentation-references"]', optional: true, popover: { title: 'Amplía la consulta', description: 'Las referencias y los anexos siguen disponibles debajo del manual.' } },
+        ],
+    },
+    'ai-assistant': {
+        available: hasPermission('ai.manage'),
+        steps: [
+            { element: 'a[href="/admin/ai-assistant"]', popover: { title: 'Asistente IA', description: 'Configura el asistente conectado a Groq desde un único punto de control.' } },
+            { element: '[data-tour="ai-chatbot"]', popover: { title: 'Accesos rápidos', description: 'Desde este botón puedes abrir Velvet AI o repetir la guía del módulo actual. El asistente respeta tu rol y permisos.' } },
+            { element: 'main form', popover: { title: 'Control avanzado', description: 'Activa el chatbot y ajusta modelo, tokens y temperatura. La clave de Groq permanece en el servidor.' } },
+        ],
+    },
     agent: {
         available: hasPermission('stations.enroll'),
         steps: [
@@ -197,6 +223,41 @@ export const productTours = {
             { element: '[data-tour="work-sessions-header"]', popover: { title: 'Sesiones de trabajo', description: 'Consulta el tiempo de trabajo autenticado separado del uptime técnico de la estación.' } },
             { element: '[data-tour="work-sessions-summary"]', popover: { title: 'Resumen de tiempos', description: 'Revisa sesiones activas, tiempo conectado y tiempo transmitiendo calculados por Master.' } },
             { element: '[data-tour="work-sessions-table"]', popover: { title: 'Detalle de sesiones', description: 'La modelo ve sus sesiones, el monitor sus modelos asignadas y administración todas.' } },
+        ],
+    },
+    'model-time': {
+        available: hasPermission('metrics.view_own'),
+        steps: [
+            { element: '[data-tour="model-time-summary"]', popover: { title: 'Resumen de tiempo', description: 'Compara sesiones, conexión y transmisión con datos asociados exclusivamente a tu cuenta.' } },
+            { element: '[data-tour="model-time-sessions"]', popover: { title: 'Historial de Agent', description: 'Revisa inicio, cierre, estación y estado de OBS. El registro se calcula con marcas del servidor.' } },
+        ],
+    },
+    'model-activity': {
+        available: hasPermission('profile.view_own'),
+        steps: [
+            { element: '[data-tour="model-activity-timeline"]', popover: { title: 'Bitácora personal', description: 'Consulta los cambios y eventos de tu perfil en orden cronológico.' } },
+            { element: '[data-tour="model-activity-timeline"] li', optional: true, popover: { title: 'Detalle de un evento', description: 'Las solicitudes incluyen tipo, detalle y respuesta para mantener el contexto del seguimiento.' } },
+        ],
+    },
+    'model-agenda': {
+        available: hasPermission('profile.view_own'),
+        steps: [
+            { element: '[data-tour="model-agenda-list"]', popover: { title: 'Agenda operativa', description: 'Aquí se reúnen turnos, rooms y citas de contratación que corresponden a tu perfil.' } },
+            { element: '[data-tour="model-agenda-list"] li', optional: true, popover: { title: 'Prepara tu actividad', description: 'Comprueba hora, estado, sala y notas antes de asistir. Los cambios se realizan en el módulo de origen.' } },
+        ],
+    },
+    'model-requests': {
+        available: hasPermission('requests.view_own'),
+        steps: [
+            { element: '[data-tour="model-request-form"]', optional: true, popover: { title: 'Crear una solicitud', description: 'Describe una necesidad operativa concreta. No envíes contraseñas ni información sensible.' } },
+            { element: '[data-tour="model-request-history"]', popover: { title: 'Seguimiento', description: 'Consulta el estado y la respuesta del equipo sin perder el historial.' } },
+        ],
+    },
+    'model-platform-requests': {
+        available: hasPermission('requests.view_own'),
+        steps: [
+            { element: '[data-tour="model-platform-request-form"]', optional: true, popover: { title: 'Solicitar plataforma', description: 'Propón un nickname y una plataforma sin crear una cuenta automáticamente.' } },
+            { element: '[data-tour="model-platform-request-history"]', popover: { title: 'Resultado de la validación', description: 'Consulta si el equipo aprobó, rechazó o aún está revisando tu solicitud.' } },
         ],
     },
     users: {
@@ -242,6 +303,8 @@ export const productTours = {
         available: hasPermission('rooms.view_team'),
         steps: [
             { element: 'a[href="/monitor/rooms"]', popover: { title: 'Rooms del equipo', description: 'Programa y controla reservas solo para las modelos que tienes asignadas.' } },
+            { element: '[data-tour="monitor-rooms-batch"]', optional: true, popover: { title: 'Programación por lotes', description: 'Agrega varias franjas para una modelo. La room queda bloqueada automáticamente cuando existe un cruce.' } },
+            { element: '[data-tour="monitor-batch-slots"]', optional: true, popover: { title: 'Varias franjas', description: 'Cada franja se valida en Bogotá y se guarda completa o no se guarda ninguna si existe un conflicto.' } },
             { element: 'main', popover: { title: 'Control de uso', description: 'Puedes programar, iniciar, finalizar o cancelar reservas autorizadas. La configuración física pertenece a Administración.' } },
         ],
     },
@@ -269,6 +332,8 @@ export const productTours = {
         steps: [
             { element: 'a[href="/model/rooms"]', popover: { title: 'Mis rooms', description: 'Consulta disponibilidad y agenda solo tus propias reservas.' } },
             { element: '[data-tour="model-rooms-availability"]', popover: { title: 'Disponibilidad', description: 'Las rooms físicas las crea y configura Administración. Desde aquí solo puedes solicitar las disponibles.' } },
+            { element: '[data-tour="model-rooms-batch"]', optional: true, popover: { title: 'Programación por lotes', description: 'Puedes reservar varias franjas de una vez; una room ocupada no puede recibir otra reserva en el mismo intervalo.' } },
+            { element: '[data-tour="model-batch-slots"]', optional: true, popover: { title: 'Varias franjas', description: 'Agrega fechas y horas independientes para organizar tus sesiones del día o de la semana.' } },
             { element: '[data-tour="model-rooms-reservations"]', popover: { title: 'Tus reservas', description: 'Inicia o finaliza únicamente tus propias reservas, según tus permisos y el estado de la agenda.' } },
         ],
     },
@@ -282,10 +347,41 @@ export const productTours = {
             { element: '[data-tour="model-platforms"]', popover: { title: 'Plataformas', description: 'Se muestran identificadores y estados autorizados; las credenciales nunca se exponen.' } },
         ],
     },
+    planning: {
+        available: hasPermission('planning.view_own'),
+        steps: [
+            { element: '[data-tour="planning-summary"]', popover: { title: 'Tu wishlist', description: 'Aquí ves tus deseos y cuáles tienen mayor prioridad para conversar con tu equipo.' } },
+            { element: '[data-tour="planning-add"]', popover: { title: 'Agrega un deseo', description: 'Registra el enlace, precio, contexto e imagen de lo que quieres conseguir.' } },
+        ],
+    },
+    'planning-wishlist-form': {
+        available: hasPermission('planning.view_own'),
+        steps: [
+            { element: '[data-tour="planning-wishlist-title"]', popover: { title: 'Nombra tu deseo', description: 'Escribe el producto, viaje o experiencia que quieres conseguir.' } },
+            { element: '[data-tour="planning-wishlist-category"]', popover: { title: 'Organiza por categoría', description: 'Usa una categoría para encontrar rápidamente deseos relacionados.' } },
+            { element: '[data-tour="planning-wishlist-url"]', popover: { title: 'Guarda el enlace', description: 'Pega el link del producto o referencia para que tu equipo pueda revisarlo contigo.' } },
+            { element: '[data-tour="planning-wishlist-price"]', popover: { title: 'Precio estimado', description: 'Registra el valor aproximado para convertir el deseo en una estrategia.' } },
+            { element: '[data-tour="planning-wishlist-currency"]', popover: { title: 'Moneda', description: 'Selecciona la moneda del precio registrado.' } },
+            { element: '[data-tour="planning-wishlist-priority"]', popover: { title: 'Prioridad', description: 'Indica qué tan importante es este deseo para ordenar la conversación.' } },
+            { element: '[data-tour="planning-wishlist-description"]', popover: { title: 'Contexto', description: 'Explica por qué es importante o qué necesitas tener en cuenta.' } },
+            { element: '[data-tour="planning-wishlist-image-file"]', popover: { title: 'Imagen de referencia', description: 'Sube una imagen JPG, PNG o WebP para que el objetivo sea más claro.' } },
+            { element: '[data-tour="planning-wishlist-submit"]', popover: { title: 'Comparte con tu equipo', description: 'Al guardar, la información queda disponible para tu administrador y para los monitores asociados.' } },
+        ],
+    },
+    'model-planning-team': {
+        available: (can) => can('models.view_assigned') || can('models.view_all'),
+        steps: [
+            { element: 'main', popover: { title: 'Visión del equipo', description: 'Consulta los deseos compartidos por las modelos dentro de tu alcance.' } },
+            { element: '[data-tour="planning-summary"]', optional: true, popover: { title: 'Resumen del equipo', description: 'Revisa la cantidad de deseos y modelos disponibles antes de preparar una estrategia.' } },
+            { element: '[data-tour="planning-all-wishlists"]', optional: true, popover: { title: 'Wishlists del equipo', description: 'El administrador ve aquí todas las wishlists; el monitor solo las de las modelos que tiene asociadas.' } },
+            { element: '[data-tour="planning-strategies"]', optional: true, popover: { title: 'Estrategias de acompañamiento', description: 'Crea y revisa las acciones que el administrador o monitor definió a partir de la wishlist.' } },
+        ],
+    },
 };
 
 export function tourKeyForPath(url) {
     const path = url.split('?')[0];
+    const query = new URLSearchParams(url.split('?')[1] || '');
 
     if (path === '/admin' || path === '/admin/recruitment') return 'pipeline';
     if (/^\/admin\/leads\/[^/]+$/.test(path)) return 'lead-flow';
@@ -300,13 +396,14 @@ export function tourKeyForPath(url) {
     if (path.startsWith('/admin/calendar')) return 'calendar';
     if (path.startsWith('/admin/rooms')) return 'rooms';
     if (path.startsWith('/admin/operations')) return 'operations';
-    if (path.startsWith('/admin/platforms')) return 'platforms';
+    if (path.startsWith('/admin/platforms')) return query.get('integration') === 'chaturbate' ? 'chaturbate' : 'platforms';
     if (path.startsWith('/admin/productivity')) return 'productivity';
     if (path.startsWith('/admin/administration')) return 'administration';
     if (path.startsWith('/admin/workflows')) return 'workflows';
     if (path.startsWith('/admin/training-data')) return 'training-data';
     if (path.startsWith('/admin/guided-tours')) return 'guided-tours';
-    if (path.startsWith('/admin/documentation')) return 'documentation';
+    if (path === '/admin/documentation') return query.has('reference') || query.has('openapi') ? 'documentation' : 'documentation-flows';
+    if (path.startsWith('/admin/ai-assistant')) return 'ai-assistant';
     if (path.startsWith('/admin/agent')) return 'agent';
     if (path.startsWith('/admin/station-manager')) return 'station-manager';
     if (path.endsWith('/work-sessions')) return 'work-sessions';
@@ -314,10 +411,17 @@ export function tourKeyForPath(url) {
     if (path.startsWith('/admin/access')) return 'roles';
     if (path.startsWith('/admin/notifications')) return 'notifications';
     if (path === '/profile') return 'profile';
+    if (path.startsWith('/model/time')) return 'model-time';
+    if (path.startsWith('/model/activity')) return 'model-activity';
+    if (path.startsWith('/model/agenda')) return 'model-agenda';
+    if (path.startsWith('/model/requests')) return 'model-requests';
+    if (path.startsWith('/model/platform-requests')) return 'model-platform-requests';
     if (path.startsWith('/monitor/models')) return 'monitor-models';
     if (path.startsWith('/monitor/rooms')) return 'monitor-rooms';
     if (path.startsWith('/monitor')) return 'monitor-portal';
     if (path.startsWith('/model/profile')) return 'model-profile';
+    if (path.startsWith('/model/planning')) return 'planning';
+    if (path.startsWith('/monitor/planning') || path.startsWith('/admin/model-planning')) return 'model-planning-team';
     if (path.startsWith('/model/rooms')) return 'model-rooms';
     if (path.startsWith('/model')) return 'model-portal';
 

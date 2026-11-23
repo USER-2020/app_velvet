@@ -174,10 +174,12 @@ No ejecutes `migrate:fresh`, `migrate:refresh` ni `db:seed` sin `--class` sobre 
 ### Flujo de turnos, reservas y métricas
 
 1. Administración crea o programa el turno y, si corresponde, lo vincula a una room.
-2. El monitor inicia la reserva desde su panel. La reserva pasa a `IN_USE`, se abre la asistencia y se registra una `operational_session`.
-3. Al finalizar, la reserva pasa a `COMPLETED`, se cierran la asistencia y la sesión, y se calculan los minutos efectivos.
-4. Las tarjetas del panel se actualizan con Inertia y los eventos Ably `room.reservation.updated` y `operation.attendance.updated`; no dependen de un temporizador de 20 segundos.
-5. Si el turno está en Sandbox de inducción, solo se modifica el registro de práctica (`TrainingRecord`). No se crean sesiones ni métricas de operación real.
+2. Monitor o modelo pueden programar una o varias franjas desde su portal. La room y la modelo quedan bloqueadas para cualquier horario que se cruce con una reserva `SCHEDULED` o `IN_USE`; el lote completo se rechaza si una franja entra en conflicto.
+3. Al crear una reserva para una modelo se registra actividad, se crea una notificación privada, se publica `room.reservation.created` y se encola un correo con un `.ics` por cada franja.
+4. El monitor inicia la reserva desde su panel. La reserva pasa a `IN_USE`, se abre la asistencia y se registra una `operational_session`.
+5. Al finalizar, la reserva pasa a `COMPLETED`, se cierran la asistencia y la sesión, y se calculan los minutos efectivos.
+6. Las tarjetas del panel se actualizan con Inertia y los eventos Ably `room.reservation.created`, `room.reservation.updated` y `operation.attendance.updated`; no dependen de un temporizador de 20 segundos.
+7. Si el turno está en Sandbox de inducción, solo se modifica el registro de práctica (`TrainingRecord`). No se crean sesiones ni métricas de operación real.
 
 ### Plataformas asignadas a monitores
 

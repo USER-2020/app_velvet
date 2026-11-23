@@ -14,7 +14,7 @@ export default function Overview({ candidates = [], statistics = {}, activityTre
     const maxTokens = Math.max(...activityTrend.map((item) => Number(item.tokens || 0)), 1);
 
     useEffect(() => subscribeToRealtime((_data, event) => {
-        if (!['room.reservation.updated', 'operation.attendance.updated'].includes(event)) return;
+        if (!['room.reservation.updated', 'operation.shift.created', 'operation.attendance.updated'].includes(event)) return;
         router.reload({ only: ['statistics', 'activityTrend', 'candidates'], preserveScroll: true, preserveState: true });
     }), []);
 

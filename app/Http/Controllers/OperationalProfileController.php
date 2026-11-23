@@ -10,7 +10,9 @@ use App\Models\ModelPlatformAccount;
 use App\Models\ModelMonitorAssignment;
 use App\Models\OperationalTrainingRecord;
 use App\Models\StudioAccount;
+use App\Services\CamGirlFinderService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -182,7 +184,7 @@ class OperationalProfileController extends Controller
         return back()->with('success', 'Seguimiento operativo actualizado.');
     }
 
-    public function linkAssignedPlatformAccount(Request $request, Candidate $candidate): RedirectResponse
+    public function linkAssignedPlatformAccount(Request $request, Candidate $candidate, CamGirlFinderService $camGirlFinder): RedirectResponse
     {
         $this->ensureAssignedModelPlatformAccess($request, $candidate);
 
@@ -211,7 +213,7 @@ class OperationalProfileController extends Controller
             ]);
         }
 
-        ModelPlatformAccount::updateOrCreate(
+        $platformAccount = ModelPlatformAccount::updateOrCreate(
             [
                 'studio_account_id' => $studioAccount->id,
                 'account_identifier' => $data['account_identifier'],
@@ -228,6 +230,8 @@ class OperationalProfileController extends Controller
             ],
         );
 
+        $this->runNicknameCheck($platformAccount, $candidate, $studioAccount->platform?->code, $camGirlFinder);
+
         CandidateActivity::create([
             'candidate_id' => $candidate->id,
             'user_id' => $request->user()->id,
@@ -242,6 +246,62 @@ class OperationalProfileController extends Controller
         ]);
 
         return back()->with('success', 'Plataforma asociada a la modelo.');
+    }
+
+    public function discoverPlatformIdentity(Request $request, Candidate $candidate, CamGirlFinderService $camGirlFinder): JsonResponse
+    {
+        $this->ensureAssignedModelPlatformAccess($request, $candidate);
+
+        try {
+            return response()->json($camGirlFinder->discover($candidate));
+        } catch (\Throwable $exception) {
+            report($exception);
+            return response()->json([
+                'provider' => 'camgirlfinder',
+                'status' => 'pending',
+                'message' => 'No fue posible completar la búsqueda preventiva.',
+                'matches' => [],
+            ], 200);
+        }
+    }
+
+    public function validatePlatformNickname(Request $request, Candidate $candidate, CamGirlFinderService $camGirlFinder): JsonResponse
+    {
+        $this->ensureAssignedModelPlatformAccess($request, $candidate);
+        $data = $request->validate([
+            'nickname' => ['required', 'string', 'min:3', 'max:180'],
+            'platform' => ['required', 'string', 'max:60'],
+        ]);
+
+        try {
+            return response()->json($camGirlFinder->validateNickname($data['nickname'], $data['platform']));
+        } catch (\Throwable $exception) {
+            report($exception);
+            return response()->json(['provider' => 'camgirlfinder', 'status' => 'pending', 'message' => 'No fue posible validar el nickname.', 'matches' => []], 200);
+        }
+    }
+
+    private function runNicknameCheck(ModelPlatformAccount $account, Candidate $candidate, ?string $platform, CamGirlFinderService $camGirlFinder): void
+    {
+        try {
+            $result = $camGirlFinder->check($candidate, $account->account_identifier, (string) $platform);
+            $account->update([
+                'nickname_check_status' => $result['status'],
+                'nickname_check_data' => $result,
+                'nickname_checked_at' => now(),
+            ]);
+        } catch (\Throwable $exception) {
+            report($exception);
+            $account->update([
+                'nickname_check_status' => 'pending',
+                'nickname_check_data' => [
+                    'provider' => 'camgirlfinder',
+                    'status' => 'pending',
+                    'message' => 'No fue posible completar la validación preventiva.',
+                ],
+                'nickname_checked_at' => now(),
+            ]);
+        }
     }
 
     public function unlinkAssignedPlatformAccount(Request $request, Candidate $candidate, ModelPlatformAccount $modelPlatformAccount): RedirectResponse

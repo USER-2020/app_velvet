@@ -1,14 +1,16 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
-import { FiBell, FiBookOpen, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiCompass, FiDatabase, FiFileText, FiGrid, FiHome, FiLink, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
+import { FiActivity, FiBell, FiBookOpen, FiBriefcase, FiCalendar, FiChevronDown, FiClipboard, FiClock, FiCompass, FiCpu, FiDatabase, FiFileText, FiGlobe, FiGrid, FiHeart, FiHome, FiLink, FiLogOut, FiMenu, FiSearch, FiSettings, FiSun, FiUser, FiUserCheck, FiUsers, FiX } from 'react-icons/fi';
 import BrandMark from '@/Components/BrandMark';
 import { useAuthorization } from '@/lib/authorization';
 import toast from 'react-hot-toast';
 import { subscribeToRealtime } from '@/lib/ably';
 import { formatFriendlyDateTime, formatRelativeTime } from '@/lib/date';
+import { useTheme } from '@/lib/theme';
 
 function notificationHref(item) {
     const data = item?.data || {};
+    if (data.portal_path) return data.portal_path;
     if (data.interview_id) return '/admin/interviews';
     if (data.candidate_id) return `/admin/candidates/${data.candidate_id}`;
     if (data.lead_id) return `/admin/leads/${data.lead_id}`;
@@ -19,10 +21,10 @@ const sections = [
     { label: 'Guías', items: [['Visitas guiadas', '/admin/guided-tours', FiCompass]] },
     { label: 'Reclutamiento', items: [['Leads', '/admin/leads', FiUsers], ['Candidatos', '/admin/candidates', FiUserCheck], ['Entrevistas', '/admin/interviews', FiCalendar], ['Contratación', '/admin/contracting', FiBriefcase], ['Calendario', '/admin/calendar', FiCalendar], ['Pipeline', '/admin/recruitment', FiGrid]] },
     { label: 'Onboarding', items: [['Procesos', '/admin/processes', FiClipboard], ['Validaciones', '/admin/validations', FiFileText], ['Documentos', '/admin/documents', FiFileText]] },
-    { label: 'Personas', items: [['Modelos', '/admin/candidates?type=MODEL', FiUsers], ['Monitores', '/admin/candidates?type=MONITOR', FiBriefcase]] },
+    { label: 'Personas', items: [['Modelos', '/admin/candidates?type=MODEL', FiUsers], ['Monitores', '/admin/candidates?type=MONITOR', FiBriefcase], ['Wishlist y estrategias', '/admin/model-planning', FiHeart]] },
     { label: 'Operación', items: [['Operación diaria', '/admin/operations', FiClipboard], ['Sesiones', '/admin/work-sessions', FiCalendar], ['Station Manager', '/admin/station-manager', FiLink], ['Plataformas', '/admin/platforms', FiDatabase], ['Administración', '/admin/administration', FiBriefcase], ['Rooms', '/admin/rooms', FiHome]] },
     { label: 'Integraciones', items: [['VELVET Agent', '/admin/agent', FiDatabase]] },
-    { label: 'Configuración', items: [['Documentación', '/admin/documentation', FiBookOpen], ['Workflows', '/admin/workflows', FiSettings], ['Datos de prueba', '/admin/training-data', FiDatabase], ['Usuarios', '/admin/users', FiUsers], ['Roles y permisos', '/admin/access', FiSettings]] },
+    { label: 'Configuración', items: [['Documentación', '/admin/documentation', FiBookOpen], ['Asistente IA', '/admin/ai-assistant', FiCpu], ['Workflows', '/admin/workflows', FiSettings], ['Datos de prueba', '/admin/training-data', FiDatabase], ['Usuarios', '/admin/users', FiUsers], ['Roles y permisos', '/admin/access', FiSettings]] },
 ];
 
 function Wordmark() {
@@ -35,10 +37,16 @@ const portalSections = {
 };
 
 function isActive(label, url) {
+    const [path, query = ''] = url.split('?');
     if (label === 'Dashboard') return url === '/monitor/dashboard' || url === '/model/dashboard';
     if (label === 'Mi perfil') return url === '/model/profile';
+    if (label === 'Mi tiempo') return url === '/model/time';
+    if (label === 'Bitácora') return url === '/model/activity';
+    if (label === 'Agenda') return url === '/model/agenda';
+    if (label === 'Solicitudes') return url === '/model/requests';
+    if (label === 'Plataformas') return url === '/model/platform-requests' || path === '/admin/platforms';
     if (label === 'Modelos') return url === '/monitor/models' || url.startsWith('/monitor/models/');
-    const [path, query = ''] = url.split('?');
+    if (label === 'Wishlist y estrategias') return url.startsWith('/admin/model-planning') || url.startsWith('/monitor/planning') || url.startsWith('/model/planning');
     if (label === 'Modelos') return path === '/admin/candidates' && query.includes('type=MODEL');
     if (label === 'Monitores') return path === '/admin/candidates' && query.includes('type=MONITOR');
     if (label === 'Entrevistas') return path === '/admin/interviews';
@@ -52,6 +60,7 @@ function isActive(label, url) {
     if (label === 'Procesos') return path === '/admin/processes';
     if (label === 'Usuarios') return path === '/admin/users';
     if (label === 'Roles y permisos') return path === '/admin/access';
+    if (label === 'Asistente IA') return path === '/admin/ai-assistant';
     if (label === 'Documentación') return path.startsWith('/admin/documentation');
     if (label === 'Workflows') return path === '/admin/workflows';
     if (label === 'Visitas guiadas') return path === '/admin/guided-tours';
@@ -59,7 +68,6 @@ function isActive(label, url) {
     if (label === 'Rooms') return path === '/admin/rooms' || path === '/monitor/rooms' || path === '/model/rooms';
     if (label === 'Operación diaria') return path === '/admin/operations';
     if (label === 'Sesiones') return path === '/admin/work-sessions' || path === '/monitor/work-sessions' || path === '/model/work-sessions';
-    if (label === 'Plataformas') return path === '/admin/platforms';
     if (label === 'VELVET Agent') return path.startsWith('/admin/agent');
     if (label === 'Station Manager') return path.startsWith('/admin/station-manager');
     if (label === 'Administración') return path === '/admin/administration';
@@ -91,6 +99,8 @@ const requiredPermissions = {
     'Datos de prueba': 'super_admin',
     Usuarios: 'users.view',
     'Roles y permisos': 'roles.view',
+    'Asistente IA': 'ai.manage',
+    'Wishlist y estrategias': 'models.view_all',
 };
 
 function Sidebar({ onClose, url, user, can }) {
@@ -104,21 +114,21 @@ function PortalSidebar({ onClose, url, user, can, roleSlug }) {
     if (roleSlug === 'monitor') return <GroupedPortalSidebar onClose={onClose} url={url} can={can} />;
     const href = roleSlug === 'monitor' ? '/monitor/dashboard' : '/model/dashboard';
     const permission = roleSlug === 'monitor' ? 'rooms.view_team' : 'rooms.view_own';
-    const items = [{ label: 'Dashboard', href, icon: FiGrid, permission }, { label: 'Sesiones', href: roleSlug === 'monitor' ? '/monitor/work-sessions' : '/model/work-sessions', icon: FiCalendar, permission: roleSlug === 'monitor' ? 'models.view_metrics' : 'metrics.view_own' }, { label: 'Documentación', href: '/admin/documentation', icon: FiBookOpen, permission: null }, ...(roleSlug === 'model' ? [{ label: 'Rooms', href: '/model/rooms', icon: FiHome, permission: 'rooms.view_own' }, { label: 'Mi perfil', href: '/model/profile', icon: FiUser, permission: 'profile.view_own' }] : []), ...(roleSlug === 'monitor' ? [{ label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }, { label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] : [])];
+    const items = [{ label: 'Dashboard', href, icon: FiGrid, permission }, { label: 'Sesiones', href: roleSlug === 'monitor' ? '/monitor/work-sessions' : '/model/work-sessions', icon: FiCalendar, permission: roleSlug === 'monitor' ? 'models.view_metrics' : 'metrics.view_own' }, ...(roleSlug === 'model' ? [{ label: 'Mi tiempo', href: '/model/time', icon: FiClock, permission: 'metrics.view_own' }, { label: 'Bitácora', href: '/model/activity', icon: FiActivity, permission: 'profile.view_own' }, { label: 'Agenda', href: '/model/agenda', icon: FiCalendar, permission: 'profile.view_own' }, { label: 'Solicitudes', href: '/model/requests', icon: FiFileText, permission: 'requests.view_own' }, { label: 'Plataformas', href: '/model/platform-requests', icon: FiGlobe, permission: 'requests.view_own' }, { label: 'Documentación', href: '/admin/documentation', icon: FiBookOpen, permission: null }, { label: 'Mi wishlist', href: '/model/planning', icon: FiHeart, permission: 'planning.view_own' }, { label: 'Rooms', href: '/model/rooms', icon: FiHome, permission: 'rooms.view_own' }, { label: 'Mi perfil', href: '/model/profile', icon: FiUser, permission: 'profile.view_own' }] : [{ label: 'Documentación', href: '/admin/documentation', icon: FiBookOpen, permission: null }]), ...(roleSlug === 'monitor' ? [{ label: 'Wishlist y estrategias', href: '/monitor/planning', icon: FiHeart, permission: 'models.view_assigned' }, { label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }, { label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] : [])];
     return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 overflow-y-auto"><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">Operación</p>{items.filter((item) => item.permission === null || can(item.permission)).map(({ label, href: itemHref, icon: Icon }) => <Link key={label} href={itemHref} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isActive(label, url) ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{isActive(label, url) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>)}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
 }
 
 function GroupedPortalSidebar({ onClose, url, can }) {
     const groups = [
         { label: 'Operación', items: [{ label: 'Dashboard', href: '/monitor/dashboard', icon: FiGrid, permission: 'rooms.view_team' }, { label: 'Sesiones', href: '/monitor/work-sessions', icon: FiCalendar, permission: 'models.view_metrics' }, { label: 'Rooms', href: '/monitor/rooms', icon: FiHome, permission: 'rooms.view_team' }, { label: 'Documentación', href: '/admin/documentation', icon: FiBookOpen, permission: null }] },
-        { label: 'Personas', items: [{ label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }] },
+        { label: 'Personas', items: [{ label: 'Modelos', href: '/monitor/models', icon: FiUsers, permission: 'models.view_assigned' }, { label: 'Wishlist y estrategias', href: '/monitor/planning', icon: FiHeart, permission: 'models.view_assigned' }] },
     ];
     return <aside className="flex h-full w-[224px] flex-col border-r border-[#1f222d] bg-[#090a10] px-4 py-5"><div className="px-3"><Wordmark /></div><nav className="sidebar-scroll mt-8 flex-1 space-y-6 overflow-y-auto">{groups.map((group) => { const items = group.items.filter((item) => item.permission === null || can(item.permission)); if (!items.length) return null; return <div key={group.label}><p className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-[#8990a1]">{group.label}</p><div className="space-y-1">{items.map(({ label, href, icon: Icon }) => <Link key={label} href={href} onClick={onClose} className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${isActive(label, url) ? 'bg-[#55166e] text-white shadow-[0_8px_22px_rgba(136,52,153,.22)]' : 'text-[#b9bac8] hover:bg-[#171522] hover:text-white'}`}><Icon size={17} strokeWidth={1.7} /><span>{label}</span>{isActive(label, url) && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#e6a0f2]" />}</Link>)}</div></div>; })}</nav><div className="mt-5 overflow-hidden rounded-lg border border-[#242632] bg-[#11121a]"><div className="relative h-32 overflow-hidden"><img src="/onboarding/modelo.webp" alt="" className="h-full w-full object-cover opacity-70" /><div className="absolute inset-0 bg-gradient-to-t from-[#11121a] via-[#351044]/25 to-transparent" /><p className="absolute bottom-3 left-3 right-3 font-editorial text-lg leading-none text-white">Talento real.<br />Historias más grandes.</p></div></div></aside>;
 }
 
 function ProfileMenu({ user, open, onToggle, menuRef }) {
     const initials = user?.name?.split(' ').map((part) => part[0]).join('').slice(0, 2) || 'VA';
-    return <div ref={menuRef} className="relative hidden sm:block"><button type="button" onClick={onToggle} aria-haspopup="menu" aria-expanded={open} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-[#171522]"><span className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-[#3b2046] text-xs font-semibold text-[#f0c5fa]">{user?.profile_photo_url ? <img src={user.profile_photo_url} alt="" className="h-full w-full object-cover" /> : initials}</span><span className="hidden leading-tight lg:block"><span className="block text-xs font-medium text-white">{user?.name || 'Velvet Admin'}</span><span className="block text-[11px] text-[#9296a4]">{user?.roles?.[0]?.name || 'Sin rol'}</span></span><FiChevronDown size={15} className={`ml-1 text-[#a1a4af] transition ${open ? 'rotate-180' : ''}`} /></button>{open && <div role="menu" className="absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-xl border border-[#34303d] bg-[#15121d] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,.5)]"><div className="border-b border-[#292936] px-3 py-2.5"><p className="text-xs font-medium text-white">{user?.name || 'Velvet Admin'}</p><p className="mt-1 truncate text-[11px] text-[#858a99]">{user?.email}</p></div><Link href="/profile" role="menuitem" className="mt-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-xs text-[#d5d2dd] hover:bg-[#2b1735] hover:text-white"><FiUser size={15} />Visitar perfil</Link><Link href="/logout" method="post" as="button" role="menuitem" className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-[#d5d2dd] hover:bg-[#2b1735] hover:text-white"><FiLogOut size={15} />Cerrar sesión</Link></div>}</div>;
+    return <div ref={menuRef} className="relative hidden sm:block"><button type="button" onClick={onToggle} aria-haspopup="menu" aria-expanded={open} className="profile-menu-trigger flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-[#171522]"><span className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-[#3b2046] text-xs font-semibold text-[#f0c5fa]">{user?.profile_photo_url ? <img src={user.profile_photo_url} alt="" className="h-full w-full object-cover" /> : initials}</span><span className="hidden leading-tight lg:block"><span className="block text-xs font-medium text-white">{user?.name || 'Velvet Admin'}</span><span className="block text-[11px] text-[#9296a4]">{user?.roles?.[0]?.name || 'Sin rol'}</span></span><FiChevronDown size={15} className={`ml-1 text-[#a1a4af] transition ${open ? 'rotate-180' : ''}`} /></button>{open && <div role="menu" className="profile-menu absolute right-0 top-12 z-50 w-56 overflow-hidden rounded-xl border border-[#34303d] bg-[#15121d] p-1.5 shadow-[0_18px_45px_rgba(0,0,0,.5)]"><div className="profile-menu__identity border-b border-[#292936] px-3 py-2.5"><p className="text-xs font-medium text-white">{user?.name || 'Velvet Admin'}</p><p className="mt-1 truncate text-[11px] text-[#858a99]">{user?.email}</p></div><Link href="/profile" role="menuitem" className="profile-menu__action mt-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-xs text-[#d5d2dd] hover:bg-[#2b1735] hover:text-white"><FiUser size={15} />Visitar perfil</Link><Link href="/logout" method="post" as="button" role="menuitem" className="profile-menu__action flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-[#d5d2dd] hover:bg-[#2b1735] hover:text-white"><FiLogOut size={15} />Cerrar sesión</Link></div>}</div>;
 }
 
 function DashboardSkeleton() {
@@ -139,6 +149,20 @@ export default function Layout({ children }) {
     const menuRef = useRef(null);
     const user = page.props.auth?.user;
     const { can } = useAuthorization();
+    const [theme, setTheme] = useTheme();
+
+    useEffect(() => {
+        const toggle = document.querySelector('header > div:last-child button.hidden, header > div:last-child button[data-theme-toggle]');
+        if (!toggle) return undefined;
+        const onClick = () => setTheme(theme === 'dark' ? 'light' : 'dark');
+        toggle.classList.remove('hidden');
+        toggle.dataset.themeToggle = 'true';
+        toggle.addEventListener('click', onClick);
+        toggle.setAttribute('aria-pressed', theme === 'light' ? 'true' : 'false');
+        toggle.setAttribute('aria-label', theme === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro');
+        toggle.setAttribute('title', theme === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro');
+        return () => toggle.removeEventListener('click', onClick);
+    }, [theme]);
 
     useEffect(() => {
         const headerActions = document.querySelector('header > div:last-child');
@@ -231,6 +255,9 @@ export default function Layout({ children }) {
     }, [page.props.realtime?.notifications]);
 
     useEffect(() => subscribeToRealtime((data, eventName) => {
+        const recipientIds = (data?.notification_user_ids || []).map(Number);
+        const currentUserId = Number(page.props.auth?.user?.id || 0);
+        if (recipientIds.length && !recipientIds.includes(currentUserId)) return;
         const portalCandidateId = Number(page.props.auth?.user?.candidate_id || 0);
         if (portalCandidateId && Number(data?.candidate_id || 0) === portalCandidateId && ['candidate.access_status_changed', 'candidate.status_changed'].includes(eventName)) {
             router.reload({ preserveScroll: true, preserveState: false });
@@ -247,7 +274,8 @@ export default function Layout({ children }) {
             data,
             created_at: new Date().toISOString(),
         }, ...current].slice(0, 25));
-        fetch('/admin/notifications', { headers: { Accept: 'application/json' } })
+        const notificationBase = window.location.pathname.startsWith('/admin') ? '/admin' : '';
+        fetch(`${notificationBase}/notifications`, { headers: { Accept: 'application/json' } })
             .then((response) => response.ok ? response.json() : null)
             .then((result) => {
                 if (!result?.notifications) return;
@@ -275,14 +303,15 @@ export default function Layout({ children }) {
         bell.setAttribute('aria-label', notifications ? `${notifications} notificaciones nuevas` : 'Sin notificaciones nuevas');
         const clearNotifications = () => {
             setNotifications(0);
-            fetch('/admin/notifications/read-all', {
+            const notificationBase = window.location.pathname.startsWith('/admin') ? '/admin' : '';
+            fetch(`${notificationBase}/notifications/read-all`, {
                 method: 'POST',
                 headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '', Accept: 'application/json' },
             }).catch(() => {});
         };
         bell.addEventListener('click', clearNotifications);
         return () => bell.removeEventListener('click', clearNotifications);
-    }, [notifications]);
+    }, [notifications, page.url]);
 
     useEffect(() => {
         const bell = document.querySelector('header button.relative');
@@ -325,12 +354,12 @@ export default function Layout({ children }) {
         if (!panel) return;
         panel.replaceChildren();
         const header = document.createElement('div');
-        header.className = 'flex items-center justify-between border-b border-[#292936] px-4 py-3';
+        header.className = 'notification-dropdown__header flex items-center justify-between border-b border-[#292936] px-4 py-3';
         const title = document.createElement('p');
-        title.className = 'text-sm font-semibold text-white';
+        title.className = 'notification-dropdown__title text-sm font-semibold text-white';
         title.textContent = 'Notificaciones';
         const count = document.createElement('span');
-        count.className = 'rounded-full bg-[#3b2046] px-2 py-0.5 text-[10px] text-[#e6a0f2]';
+        count.className = 'notification-dropdown__count rounded-full bg-[#3b2046] px-2 py-0.5 text-[10px] text-[#e6a0f2]';
         count.textContent = notificationItems.length ? String(notificationItems.length) : '0';
         header.append(title, count);
         panel.appendChild(header);
@@ -338,7 +367,7 @@ export default function Layout({ children }) {
         search.type = 'search';
         search.value = notificationSearch;
         search.placeholder = 'Buscar notificaciones...';
-        search.className = 'mx-4 mt-3 w-[calc(100%-2rem)] rounded-lg border border-[#343044] bg-[#0f0e16] px-3 py-2 text-xs text-white outline-none placeholder:text-[#777d8f] focus:border-[#a92ad8]';
+        search.className = 'notification-dropdown__search mx-4 mt-3 w-[calc(100%-2rem)] rounded-lg border border-[#343044] bg-[#0f0e16] px-3 py-2 text-xs text-white outline-none placeholder:text-[#777d8f] focus:border-[#a92ad8]';
         search.addEventListener('input', (event) => setNotificationSearch(event.target.value));
         panel.appendChild(search);
 
@@ -354,7 +383,7 @@ export default function Layout({ children }) {
 
         if (!filteredItems.length) {
             const empty = document.createElement('p');
-            empty.className = 'px-4 py-8 text-center text-xs text-[#858a99]';
+            empty.className = 'notification-dropdown__empty px-4 py-8 text-center text-xs text-[#858a99]';
             empty.textContent = notificationItems.length ? 'No hay resultados para esa búsqueda.' : 'No hay notificaciones nuevas.';
             panel.appendChild(empty);
             return;
@@ -363,32 +392,32 @@ export default function Layout({ children }) {
         list.className = 'notification-dropdown-list max-h-[360px] overflow-y-auto';
         filteredItems.forEach((item) => {
             const row = document.createElement('article');
-            row.className = 'flex items-center gap-3 border-b border-[#292936] px-4 py-3 last:border-b-0';
+            row.className = 'notification-dropdown__row flex items-center gap-3 border-b border-[#292936] px-4 py-3 last:border-b-0';
             const content = document.createElement('div');
             content.className = 'min-w-0 flex-1';
             const itemTitle = document.createElement('p');
-            itemTitle.className = 'text-xs font-medium text-white';
+            itemTitle.className = 'notification-dropdown__item-title text-xs font-medium text-white';
             itemTitle.textContent = item.title;
             const description = document.createElement('p');
-            description.className = 'mt-1 text-[11px] leading-4 text-[#a5a7b4]';
+            description.className = 'notification-dropdown__description mt-1 text-[11px] leading-4 text-[#a5a7b4]';
             description.textContent = item.description;
             const reference = item.data?.code || (item.data?.lead_id ? `Lead #${item.data.lead_id}` : null);
             if (reference) {
                 const referenceText = document.createElement('p');
-                referenceText.className = 'mt-1 text-[10px] font-medium text-[#d56bea]';
+                referenceText.className = 'notification-dropdown__reference mt-1 text-[10px] font-medium text-[#d56bea]';
                 referenceText.textContent = reference;
                 content.append(itemTitle, description, referenceText);
             } else {
                 content.append(itemTitle, description);
             }
             const timestamp = document.createElement('p');
-            timestamp.className = 'mt-1 text-[10px] text-[#777d8f]';
+            timestamp.className = 'notification-dropdown__timestamp mt-1 text-[10px] text-[#777d8f]';
             timestamp.textContent = formatRelativeTime(item.created_at, relativeNow);
             timestamp.title = formatFriendlyDateTime(item.created_at);
             content.appendChild(timestamp);
             const action = document.createElement('a');
             action.href = notificationHref(item);
-            action.className = 'grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#713080] text-sm text-[#e5a1f2] transition hover:bg-[#713080] hover:text-white';
+            action.className = 'notification-dropdown__action grid h-7 w-7 shrink-0 place-items-center rounded-md border border-[#713080] text-sm text-[#e5a1f2] transition hover:bg-[#713080] hover:text-white';
             action.title = 'Abrir módulo relacionado';
             action.setAttribute('aria-label', 'Abrir módulo relacionado');
             action.textContent = '↗';
@@ -401,8 +430,8 @@ export default function Layout({ children }) {
             list.appendChild(row);
         });
         const history = document.createElement('a');
-        history.href = '/admin/notifications/history';
-        history.className = 'block border-t border-[#292936] px-4 py-3 text-center text-[11px] font-medium text-[#d56bea] hover:bg-[#24152d]';
+        history.href = window.location.pathname.startsWith('/admin') ? '/admin/notifications/history' : '/notifications/history';
+        history.className = 'notification-dropdown__history block border-t border-[#292936] px-4 py-3 text-center text-[11px] font-medium text-[#d56bea] hover:bg-[#24152d]';
         history.textContent = 'Ver historial de notificaciones';
         history.addEventListener('click', (event) => {
             event.preventDefault();

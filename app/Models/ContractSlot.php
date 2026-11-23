@@ -18,6 +18,11 @@ class ContractSlot extends Model
         return $this->hasOne(ContractAppointment::class);
     }
 
+    public function appointments()
+    {
+        return $this->hasMany(ContractAppointment::class);
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');

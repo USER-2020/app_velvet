@@ -105,9 +105,9 @@ export default function Show({ lead }) {
             after: () => changeStatus('CONTACTED'),
         };
         if (!candidateId && pipelineStatus === 'CONTACTED') return {
-            title: 'Calificar lead',
-            description: 'Ya hubo contacto. Marca la solicitud como calificada para habilitar su conversión a candidato.',
-            label: 'Marcar como calificada',
+            title: 'Aceptar y crear candidato',
+            description: 'Ya hubo contacto. Al aceptar el lead se crea el candidato y comienza automáticamente la precalificación.',
+            label: 'Aceptar lead y continuar',
             action: () => changeStatus('QUALIFIED'),
         };
         if (!candidateId && pipelineStatus === 'QUALIFIED') return {

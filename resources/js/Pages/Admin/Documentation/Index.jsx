@@ -1,7 +1,8 @@
-import { Head, Link, useForm } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, useForm } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
 import { FiBookOpen, FiChevronRight, FiDownload, FiFileText, FiLayers, FiPaperclip, FiTrash2, FiUploadCloud } from 'react-icons/fi';
 import Layout from '../Recruitment/Layout';
+import FunctionalGuides from './FunctionalGuides';
 
 const formatSize = (bytes) => {
     if (!bytes) return null;
@@ -11,6 +12,74 @@ const formatSize = (bytes) => {
 };
 
 const methodColors = { get: 'border-[#2d8669] bg-[#12372e] text-[#9af2cb]', post: 'border-[#7554a0] bg-[#2b1b3d] text-[#ddb5ee]', put: 'border-[#9a7137] bg-[#382b18] text-[#f5d99e]', patch: 'border-[#9a7137] bg-[#382b18] text-[#f5d99e]', delete: 'border-[#93475b] bg-[#391c27] text-[#ffb1bd]' };
+
+function InlineDocumentation({ text }) {
+    const parts = String(text || '').split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+
+    return <>{parts.map((part, index) => part.startsWith('**') && part.endsWith('**')
+        ? <strong key={index} className="font-semibold text-white">{part.slice(2, -2)}</strong>
+        : <span key={index}>{part}</span>)}</>;
+}
+
+function MarkdownPreview({ content }) {
+    const lines = String(content || '').split(/\r?\n/);
+    const blocks = [];
+    let code = [];
+    let inCode = false;
+
+    lines.forEach((line) => {
+        if (line.trim().startsWith('~~~')) {
+            if (inCode) {
+                blocks.push({ type: 'code', content: code.join('\n') });
+                code = [];
+            }
+            inCode = !inCode;
+            return;
+        }
+        if (inCode) {
+            code.push(line);
+            return;
+        }
+        blocks.push({ type: 'line', content: line });
+    });
+    if (code.length) blocks.push({ type: 'code', content: code.join('\n') });
+
+    return <div className="documentation-markdown space-y-4">
+        {blocks.map((block, index) => {
+            const line = block.content;
+            const heading = line.match(/^(#{1,4})\s+(.+)$/);
+            const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+            const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+            const quote = line.match(/^\s*>\s?(.+)$/);
+
+            if (block.type === 'code') return <pre key={index} className="overflow-x-auto rounded-xl border border-[#343044] bg-[#090a10] p-4 font-mono text-xs leading-6 text-[#b7e7d7]"><code>{line}</code></pre>;
+            if (!line.trim()) return <div key={index} className="h-1" />;
+            if (heading) return <h3 key={index} className={(heading[1].length === 1 ? 'text-2xl' : heading[1].length === 2 ? 'text-xl' : 'text-base') + ' pt-3 font-editorial text-white'}><InlineDocumentation text={heading[2]} /></h3>;
+            if (bullet) return <div key={index} className="flex gap-3 pl-2 text-sm leading-6 text-[#c8c2ce]"><span className="text-[#d56bea]">•</span><span><InlineDocumentation text={bullet[1]} /></span></div>;
+            if (numbered) return <div key={index} className="flex gap-3 pl-2 text-sm leading-6 text-[#c8c2ce]"><span className="font-mono text-[#d56bea]">{line.match(/^\s*(\d+)/)[1]}.</span><span><InlineDocumentation text={numbered[1]} /></span></div>;
+            if (quote) return <blockquote key={index} className="border-l-2 border-[#b85bd0] bg-[#1b1424] px-4 py-3 text-sm italic leading-6 text-[#c9b9d0]"><InlineDocumentation text={quote[1]} /></blockquote>;
+            if (line.includes('|') && !/^\s*\|?[\s|:-]+\|?\s*$/.test(line)) {
+                const cells = line.split('|').map((cell) => cell.trim()).filter(Boolean);
+                return <div key={index} className="grid gap-2 rounded-lg border border-[#292d39] bg-[#151522] px-3 py-2 text-xs text-[#c8c2ce] sm:grid-cols-3">{cells.map((cell, cellIndex) => <span key={cellIndex}><InlineDocumentation text={cell} /></span>)}</div>;
+            }
+
+            return <p key={index} className="text-sm leading-7 text-[#c8c2ce]"><InlineDocumentation text={line} /></p>;
+        })}
+    </div>;
+}
+
+function ReferencePreview({ reference }) {
+    if (!reference) return null;
+
+    return <section data-reference-preview className="mt-10 overflow-hidden rounded-2xl border border-[#3d2948] bg-[#11131c]/95 shadow-[0_18px_55px_rgba(0,0,0,.18)]">
+        <div className="border-b border-[#292d39] bg-gradient-to-r from-[#21142b] to-[#11131c] px-5 py-5 sm:px-7">
+            <p className="text-[10px] uppercase tracking-[.2em] text-[#d56bea]">{reference.category} · Vista previa</p>
+            <h2 className="mt-2 font-editorial text-2xl text-white sm:text-3xl">{reference.title}</h2>
+            <p className="mt-2 font-mono text-[10px] text-[#777d8f]">docs/{reference.path}</p>
+        </div>
+        <div className="px-5 py-6 sm:px-7 sm:py-8"><MarkdownPreview content={reference.content} /></div>
+    </section>;
+}
 
 function SwaggerExplorer({ spec }) {
     if (!spec) return null;
@@ -24,9 +93,19 @@ function AgentSessionsOverview() {
     return <section data-tour="documentation-agent-sessions" className="mt-10 rounded-xl border border-[#292d39] bg-[#11131c]/90 p-5 sm:p-6"><div className="flex items-start gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#172d3a] text-[#8bdcf0]"><FiLayers /></span><div><h2 className="text-lg text-white">Sesiones de trabajo y métricas</h2><p className="mt-1 max-w-3xl text-xs leading-5 text-[#858a99]">La estación puede permanecer enrolada, mientras Master registra por usuario el tiempo conectado, transmisión y estado de OBS.</p></div></div><div className="mt-5 grid gap-3 md:grid-cols-4"><div className="rounded-lg border border-[#292d39] bg-[#0d0f16] p-4"><p className="text-[10px] uppercase tracking-[.16em] text-[#d69be4]">1 · OAuth</p><p className="mt-2 text-xs leading-5 text-[#b8b3c0]">El usuario se autentica y el Agent consulta sus permisos.</p></div><div className="rounded-lg border border-[#292d39] bg-[#0d0f16] p-4"><p className="text-[10px] uppercase tracking-[.16em] text-[#d69be4]">2 · Inicio</p><p className="mt-2 font-mono text-[11px] text-[#d9c3df]">POST /sessions/start</p><p className="mt-2 text-xs leading-5 text-[#858a99]">Master crea una única sesión activa por estación.</p></div><div className="rounded-lg border border-[#292d39] bg-[#0d0f16] p-4"><p className="text-[10px] uppercase tracking-[.16em] text-[#d69be4]">3 · Heartbeat</p><p className="mt-2 font-mono text-[11px] text-[#d9c3df]">sessionId + OBS</p><p className="mt-2 text-xs leading-5 text-[#858a99]">Se acumulan conexión y tiempo transmitiendo.</p></div><div className="rounded-lg border border-[#292d39] bg-[#0d0f16] p-4"><p className="text-[10px] uppercase tracking-[.16em] text-[#d69be4]">4 · Cierre</p><p className="mt-2 font-mono text-[11px] text-[#d9c3df]">POST /sessions/:id/end</p><p className="mt-2 text-xs leading-5 text-[#858a99]">Logout, revocación o timeout finalizan el registro.</p></div></div><p className="mt-4 text-[11px] text-[#777d8f]">El timeout configurable es de 90 segundos por defecto. Consulta el manual de sesiones para el contrato completo.</p></section>;
 }
 
-export default function Index({ references = [], customDocuments = [], modules = [], canManage = false, openapi = null }) {
+export default function Index({ references = [], customDocuments = [], guides = [], guideProfiles = [], canManage = false, openapi = null, referencePreview = null }) {
     const [pendingDelete, setPendingDelete] = useState(null);
     const form = useForm({ title: '', category: 'General', summary: '', content: '', attachment: null });
+
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get('openapi') !== '1') return undefined;
+        const timer = window.setTimeout(() => {
+            const target = referencePreview ? '[data-reference-preview]' : '[data-tour="documentation-swagger"]';
+            document.querySelector(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+
+        return () => window.clearTimeout(timer);
+    }, [referencePreview]);
 
     const submit = (event) => {
         event.preventDefault();
@@ -46,20 +125,18 @@ export default function Index({ references = [], customDocuments = [], modules =
                     <div>
                         <p className="text-[10px] uppercase tracking-[.28em] text-[#d56bea]">Centro de conocimiento</p>
                         <h1 className="mt-2 font-editorial text-4xl tracking-[-.04em] text-white sm:text-5xl">Documentación</h1>
-                        <p className="mt-2 max-w-3xl text-sm leading-6 text-[#969baa]">APIs, manuales y anexos relevantes para operar, mantener y extender Velvet Master.</p>
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-[#969baa]">Guías operativas por rol, demostraciones paso a paso y referencias técnicas de Velvet Master.</p>
                     </div>
                 </header>
+
+                <FunctionalGuides guides={guides} profiles={guideProfiles} />
 
                 <section data-tour="documentation-references" className="mt-8">
                     <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-[#381448] text-[#e7a4f2]"><FiBookOpen /></span><div><h2 className="text-lg text-white">Referencias oficiales</h2><p className="mt-1 text-xs text-[#858a99]">Documentos versionados que ya forman parte del repositorio.</p></div></div>
                     <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{references.map((reference) => <a key={reference.key} href={reference.url} target="_blank" rel="noreferrer" className="group rounded-xl border border-[#292d39] bg-[#11131c]/90 p-5 transition hover:border-[#8e42a1] hover:bg-[#171321]"><div className="flex items-start justify-between gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[#2b1735] text-[#df94ed]"><FiFileText /></span><FiChevronRight className="text-[#6e7180] transition group-hover:translate-x-1 group-hover:text-[#e49aef]" /></div><p className="mt-5 text-[10px] uppercase tracking-[.2em] text-[#a85ab8]">{reference.category}</p><h3 className="mt-2 text-base text-white">{reference.title}</h3><p className="mt-2 text-xs leading-5 text-[#9296a5]">{reference.description}</p><p className="mt-4 truncate font-mono text-[10px] text-[#696d7c]">docs/{reference.path}</p></a>)}</div>
                 </section>
 
-                <section data-tour="documentation-modules" className="mt-10">
-                    <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-[#132d35] text-[#8be2d0]"><FiLayers /></span><div><h2 className="text-lg text-white">Manual funcional por módulo</h2><p className="mt-1 text-xs text-[#858a99]">Mapa rápido de las áreas que componen Velvet Master.</p></div></div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{modules.map((module) => <Link key={module.name} href={module.route} className="group rounded-xl border border-[#292d39] bg-[#11131c] p-4 transition hover:border-[#3e806f] hover:bg-[#151d1e]"><div className="flex items-center justify-between gap-3"><h3 className="text-sm text-white">{module.name}</h3><FiChevronRight className="text-[#68727b] transition group-hover:translate-x-1 group-hover:text-[#9af2cb]" /></div><p className="mt-2 text-xs leading-5 text-[#858a99]">{module.description}</p></Link>)}</div>
-                </section>
-
+                <ReferencePreview reference={referencePreview} />
                 <SwaggerExplorer spec={openapi} />
 
                 <AgentSessionsOverview />

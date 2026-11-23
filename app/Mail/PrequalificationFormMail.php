@@ -13,14 +13,16 @@ class PrequalificationFormMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public function __construct(public Candidate $candidate, public string $formUrl)
+    public function __construct(public Candidate $candidate, public string $formUrl, public bool $identityRetry = false)
     {
     }
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Completa tus requisitos iniciales  ·  The Velvet Studio',
+            subject: $this->identityRetry
+                ? 'Nueva verificación de identidad  ·  The Velvet Studio'
+                : 'Completa tus requisitos iniciales  ·  The Velvet Studio',
         );
     }
 
@@ -32,6 +34,7 @@ class PrequalificationFormMail extends Mailable
                 'applicantName' => $this->candidate->lead->full_name,
                 'candidateCode' => $this->candidate->code,
                 'formUrl' => $this->formUrl,
+                'identityRetry' => $this->identityRetry,
             ],
         );
     }
