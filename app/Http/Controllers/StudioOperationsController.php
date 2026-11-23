@@ -16,6 +16,7 @@ use App\Models\RoomUsageLog;
 use App\Models\ShiftAttendance;
 use App\Services\OperationalSessionService;
 use App\Services\RealtimePublisher;
+use App\Services\RoomReservationNotificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -51,7 +52,7 @@ class StudioOperationsController extends Controller
                 'description' => $incident->description, 'candidate' => $incident->candidate?->lead?->full_name, 'room' => $incident->room?->name,
             ])->values(),
             'requests' => OperationalRequest::query()->with('candidate.lead')->where('status', 'PENDING')->latest()->limit(20)->get()->map(fn (OperationalRequest $item) => [
-                'id' => $item->id, 'type' => $item->type, 'details' => $item->details, 'candidate' => $item->candidate?->lead?->full_name,
+                'id' => $item->id, 'type' => $item->type, 'details' => $item->details, 'metadata' => $item->metadata, 'candidate' => $item->candidate?->lead?->full_name,
             ])->values(),
             'checklists' => RoomOperationChecklist::query()->with('room')->where('status', 'PENDING')->orderBy('created_at')->limit(20)->get()->map(fn (RoomOperationChecklist $item) => [
                 'id' => $item->id, 'kind' => $item->kind, 'room' => $item->room?->name, 'items' => $item->items,
@@ -75,7 +76,8 @@ class StudioOperationsController extends Controller
         $startsAt = Carbon::parse($data['starts_at'], 'America/Bogota')->utc();
         $endsAt = Carbon::parse($data['ends_at'], 'America/Bogota')->utc();
 
-        DB::transaction(function () use ($request, $data, $startsAt, $endsAt): void {
+        $createdReservation = null;
+        DB::transaction(function () use ($request, $data, $startsAt, $endsAt, &$createdReservation): void {
             $model = Candidate::query()->lockForUpdate()->findOrFail($data['model_candidate_id']);
             $this->ensureActiveCandidate($model, CandidateType::MODEL, 'modelo');
             $monitor = ! empty($data['monitor_candidate_id']) ? Candidate::query()->lockForUpdate()->findOrFail($data['monitor_candidate_id']) : null;
@@ -109,12 +111,14 @@ class StudioOperationsController extends Controller
                     'purpose' => "Turno {$shift->code}", 'starts_at' => $startsAt, 'ends_at' => $endsAt, 'status' => 'SCHEDULED', 'notes' => $data['notes'] ?? null,
                 ]);
                 $shift->update(['room_reservation_id' => $reservation->id]);
+                $createdReservation = $reservation;
                 foreach (['OPENING', 'CLOSING'] as $kind) {
                     RoomOperationChecklist::create(['room_id' => $room->id, 'operational_shift_id' => $shift->id, 'kind' => $kind, 'status' => 'PENDING', 'items' => $this->defaultChecklist($kind)]);
                 }
             }
         });
 
+        if ($createdReservation) app(RoomReservationNotificationService::class)->notify($request->user(), $createdReservation);
         $this->publish('operation.shift.created');
         return back()->with('success', 'Turno programado. La asistencia y la reserva de sala quedan separadas y trazables.');
     }
@@ -201,8 +205,8 @@ class StudioOperationsController extends Controller
     {
         abort_unless($request->user()->hasPermissionTo('requests.create'), 403);
         $data = $request->validate(['type' => ['required', 'string', 'max:40'], 'starts_at' => ['nullable', 'date'], 'ends_at' => ['nullable', 'date', 'after:starts_at'], 'details' => ['required', 'string', 'min:5', 'max:5000']]);
-        OperationalRequest::create([...$data, 'candidate_id' => Candidate::query()->where('user_id', $request->user()->id)->value('id'), 'requested_by' => $request->user()->id, 'status' => 'PENDING']);
-        $this->publish('operation.request.created');
+        $operationalRequest = OperationalRequest::create([...$data, 'candidate_id' => Candidate::query()->where('user_id', $request->user()->id)->value('id'), 'requested_by' => $request->user()->id, 'status' => 'PENDING']);
+        $this->publishRequestEvent('operation.request.created', $operationalRequest);
         return back()->with('success', 'Solicitud operativa registrada.');
     }
 
@@ -211,6 +215,7 @@ class StudioOperationsController extends Controller
         abort_unless($request->user()->hasPermissionTo('incidents.manage'), 403);
         $data = $request->validate(['status' => ['required', Rule::in(['APPROVED', 'REJECTED', 'CANCELLED'])], 'response' => ['nullable', 'string', 'max:5000']]);
         $operationalRequest->update([...$data, 'response' => $data['response'] ?? null, 'resolved_by' => $request->user()->id, 'resolved_at' => now()]);
+        $this->publishRequestEvent('operation.request.updated', $operationalRequest->fresh());
         return back()->with('success', 'Solicitud actualizada.');
     }
 
@@ -272,4 +277,16 @@ class StudioOperationsController extends Controller
     private function authorizeAttendance(Request $request): void { abort_unless($request->user()->hasPermissionTo('attendance.manage'), 403); }
     private function authorizeChecklist(Request $request): void { abort_unless($request->user()->hasPermissionTo('room_checklists.manage'), 403); }
     private function publish(string $event): void { app(RealtimePublisher::class)->publish($event, []); }
+
+    private function publishRequestEvent(string $event, OperationalRequest $request): void
+    {
+        app(RealtimePublisher::class)->publish($event, [
+            'request_id' => $request->id,
+            'candidate_id' => $request->candidate_id,
+            'requested_by' => $request->requested_by,
+            'type' => $request->type,
+            'status' => $request->status,
+            'updated_at' => $request->updated_at?->toIso8601String(),
+        ]);
+    }
 }

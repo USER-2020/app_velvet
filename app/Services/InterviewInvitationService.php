@@ -19,7 +19,7 @@ class InterviewInvitationService
      * Creates an invitation, reserves no slot yet, and emails the candidate
      * the secure page where they can choose one of the available slots.
      */
-    public function send(Candidate $candidate, User $user, bool $advanceCandidate = true): ?Interview
+    public function send(Candidate $candidate, ?User $user, bool $advanceCandidate = true): ?Interview
     {
         $candidate->loadMissing('lead');
         $slotsExist = InterviewSlot::where('status', 'AVAILABLE')
@@ -39,7 +39,7 @@ class InterviewInvitationService
 
             $interview = Interview::create([
                 'candidate_id' => $candidate->id,
-                'created_by' => $user->id,
+                'created_by' => $user?->id,
                 'status' => 'INVITED',
                 'invitation_token_hash' => hash('sha256', $token),
                 'invitation_expires_at' => $expiresAt,
@@ -51,7 +51,7 @@ class InterviewInvitationService
 
             $invitationActivity = CandidateActivity::create([
                 'candidate_id' => $candidate->id,
-                'user_id' => $user->id,
+                'user_id' => $user?->id,
                 'type' => 'interview_invited',
                 'description' => 'Se enviaron horarios disponibles para agendar la entrevista.',
                 'metadata' => ['expires_at' => $expiresAt->toIso8601String()],

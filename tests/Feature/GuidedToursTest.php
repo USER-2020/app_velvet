@@ -46,4 +46,20 @@ class GuidedToursTest extends TestCase
         $this->assertFalse(SystemSetting::guidedToursEnabled());
         $this->assertDatabaseHas('system_settings', ['key' => 'guided_tours']);
     }
+
+    public function test_functional_documentation_tour_saves_progress_per_user(): void
+    {
+        $monitor = User::factory()->create()->assignRole('monitor');
+        $path = '/tour-progress/documentation-flows';
+
+        $this->actingAs($monitor)->put($path, ['version' => 1, 'status' => 'completed'])->assertNoContent();
+        $this->assertDatabaseHas('user_tour_progresses', [
+            'user_id' => $monitor->id,
+            'tour_key' => 'documentation-flows',
+            'version' => 1,
+        ]);
+
+        SystemSetting::setGuidedToursEnabled(false);
+        $this->put($path, ['version' => 1, 'status' => 'skipped'])->assertForbidden();
+    }
 }

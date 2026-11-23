@@ -5,10 +5,38 @@ import { createInertiaApp, router } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createRoot } from 'react-dom/client';
 import { Toaster, toast } from 'react-hot-toast';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRegisterSW } from 'virtual:pwa-register/react';
 import ProductTour from '@/Components/ProductTour';
+import GroqChatbot from '@/Components/GroqChatbot';
 import { initializeMetaPixel, trackMetaPageView } from '@/lib/metaPixel';
 import { initializeGoogleAnalytics, trackGooglePageView } from '@/lib/googleAnalytics';
+import { getTheme } from '@/lib/theme';
+
+const isPublicPath = (pathname) => pathname === '/'
+    || pathname === '/login'
+    || pathname.startsWith('/register')
+    || pathname === '/apply'
+    || pathname.startsWith('/apply/draft')
+    || pathname === '/politica-de-privacidad'
+    || pathname === '/terminos-y-condiciones'
+    || pathname.startsWith('/wishlist/share/')
+    || pathname.startsWith('/prequalification/')
+    || pathname.startsWith('/entrevista/')
+    || pathname.startsWith('/contratacion/')
+    || pathname.startsWith('/forgot-password')
+    || pathname.startsWith('/reset-password')
+    || pathname.startsWith('/verify-email')
+    || pathname.startsWith('/confirm-password');
+
+const applyRouteTheme = (pathname) => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.dataset.theme = isPublicPath(pathname) ? 'dark' : getTheme();
+};
+
+// Aplica la preferencia antes de montar Inertia para evitar un destello oscuro
+// cuando la persona ya había elegido el modo claro.
+if (typeof window !== 'undefined') applyRouteTheme(window.location.pathname);
 
 function renderInertiaPage({ Component, props, key }) {
     const child = <Component key={key} {...props} />;
@@ -17,21 +45,10 @@ function renderInertiaPage({ Component, props, key }) {
     if (typeof Component.layout === 'function') page = Component.layout(child);
     if (Array.isArray(Component.layout)) page = Component.layout.concat(child).reverse().reduce((children, Layout) => <Layout {...props}>{children}</Layout>);
 
-    return <>{page}<ProductTour /></>;
+    return <>{page}<ProductTour /><GroqChatbot /></>;
 }
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
-
-const isPublicPath = (pathname) => pathname === '/'
-    || pathname === '/login'
-    || pathname === '/apply'
-    || pathname === '/politica-de-privacidad'
-    || pathname === '/terminos-y-condiciones'
-    || pathname.startsWith('/prequalification/')
-    || pathname.startsWith('/forgot-password')
-    || pathname.startsWith('/reset-password')
-    || pathname.startsWith('/verify-email')
-    || pathname.startsWith('/confirm-password');
 
 const pathFromVisit = (visit) => new URL(visit?.url || window.location.href, window.location.origin).pathname;
 const isPublicGetVisit = (visit) => String(visit?.method || 'get').toLowerCase() === 'get'
@@ -66,6 +83,7 @@ function PublicRouteOverlay() {
             // aunque Laravel responda con una redirección al dashboard. Solo las
             // navegaciones GET hacia una ruta pública deben mostrar este overlay.
             const publicRoute = isPublicGetVisit(event.detail?.visit);
+            applyRouteTheme(pathFromVisit(event.detail?.visit));
             window.dispatchEvent(new CustomEvent('velvet-public-route-changed', { detail: { publicRoute } }));
             clearTimers();
             setFading(false);
@@ -77,6 +95,7 @@ function PublicRouteOverlay() {
             // de Inertia; evita dejar el login visible tras autenticar otro usuario.
             const publicRoute = isPublicGetVisit(event.detail?.visit)
                 && isPublicPath(window.location.pathname);
+            applyRouteTheme(window.location.pathname);
             if (publicRoute) schedule();
             else {
                 clearTimers();
@@ -87,6 +106,7 @@ function PublicRouteOverlay() {
 
         const removeStartListener = router.on('start', onStart);
         const removeFinishListener = router.on('finish', onFinish);
+        applyRouteTheme(window.location.pathname);
         if (isPublicPath(window.location.pathname)) schedule();
 
         return () => {
@@ -124,19 +144,32 @@ function ModuleSkeleton({ path, block }) {
 function DashboardRouteSkeleton() {
     const [visible, setVisible] = useState(false);
     const [targetPath, setTargetPath] = useState(() => window.location.pathname);
+    const hideTimer = useRef(null);
 
     useEffect(() => {
-        const isDashboardPath = (pathname) => pathname === '/dashboard' || pathname.startsWith('/admin');
+        const isAppPath = (pathname) => pathname === '/dashboard'
+            || pathname.startsWith('/admin')
+            || pathname.startsWith('/monitor')
+            || pathname.startsWith('/model');
         const removeStartListener = router.on('start', (event) => {
             // Partial reloads (for example, realtime updates) must not replace
             // the visible page with the full route skeleton.
             if (event.detail?.visit?.only?.length) return;
+            window.clearTimeout(hideTimer.current);
             const pathname = pathFromVisit(event.detail?.visit);
             setTargetPath(pathname);
-            setVisible(isDashboardPath(pathname));
+            setVisible(isAppPath(pathname));
         });
-        const removeFinishListener = router.on('finish', () => setVisible(false));
-        return () => { removeStartListener(); removeFinishListener(); };
+        const removeFinishListener = router.on('finish', () => {
+            // Evita que una navegación rápida haga aparecer un parpadeo de
+            // skeleton de un solo frame y mantiene una transición perceptible.
+            hideTimer.current = window.setTimeout(() => setVisible(false), 220);
+        });
+        return () => {
+            window.clearTimeout(hideTimer.current);
+            removeStartListener();
+            removeFinishListener();
+        };
     }, []);
 
     if (!visible) return null;
@@ -205,6 +238,30 @@ function GlobalCrudToasts() {
     }, []);
 
     return <Toaster position="top-center" reverseOrder={false} gutter={10} toastOptions={{ duration: 4200, className: 'velvet-toast', success: { className: 'velvet-toast velvet-toast--success' }, error: { className: 'velvet-toast velvet-toast--error' }, loading: { className: 'velvet-toast velvet-toast--loading' } }} />;
+}
+
+function PwaUpdatePrompt() {
+    const [needRefresh, setNeedRefresh] = useState(false);
+    const [offlineReady, setOfflineReady] = useState(false);
+    const { updateServiceWorker } = useRegisterSW({
+        onNeedRefresh: () => setNeedRefresh(true),
+        onOfflineReady: () => setOfflineReady(true),
+    });
+
+    useEffect(() => {
+        if (!offlineReady) return undefined;
+        const timer = window.setTimeout(() => setOfflineReady(false), 6000);
+        return () => window.clearTimeout(timer);
+    }, [offlineReady]);
+
+    if (!needRefresh && !offlineReady) return null;
+
+    return <aside className="pwa-status-toast" role="status" aria-live="polite">
+        {needRefresh ? <>
+            <span>Hay una nueva versión de Velvet Master.</span>
+            <button type="button" onClick={() => updateServiceWorker(true)}>Actualizar</button>
+        </> : <span>Velvet Master está lista para usarse como aplicación.</span>}
+    </aside>;
 }
 
 function CookieConsentBanner() {
@@ -327,7 +384,7 @@ createInertiaApp({
     setup({ el, App, props }) {
         const root = createRoot(el);
 
-        root.render(<><App {...props}>{renderInertiaPage}</App><GlobalCrudToasts /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /><MetaPixel /><GoogleAnalytics /></>);
+        root.render(<><App {...props}>{renderInertiaPage}</App><GlobalCrudToasts /><PwaUpdatePrompt /><PublicRouteOverlay /><DashboardRouteSkeleton /><CookieConsentBanner /><CookiePreferencesEntry /><MetaPixel /><GoogleAnalytics /></>);
     },
     progress: {
         color: '#4B5563',

@@ -44,6 +44,11 @@ return [
         'evidence_disk' => env('DIDIT_EVIDENCE_DISK', 'local'),
     ],
 
+    'camgirlfinder' => [
+        'base_url' => env('CAMGIRLFINDER_BASE_URL', 'https://api.camgirlfinder.to'),
+        'user_agent' => env('CAMGIRLFINDER_USER_AGENT', 'TheVelvetStudio/1.0 nickname-precheck'),
+    ],
+
     'velvet' => [
         'whatsapp_number' => env('VELVET_WHATSAPP_NUMBER'),
     ],

@@ -8,6 +8,7 @@ use App\Models\RoomReservation;
 use App\Models\RoomUsageLog;
 use App\Models\User;
 use App\Services\RealtimePublisher;
+use App\Services\RoomReservationNotificationService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -183,7 +184,7 @@ class RoomController extends Controller
             throw ValidationException::withMessages(['room_id' => 'No se pudo reservar la room. Inténtalo nuevamente.']);
         }
 
-        $this->publish('room.reservation.created', ['room_id' => $reservation->room_id, 'reservation_id' => $reservation->id]);
+        app(RoomReservationNotificationService::class)->notify($request->user(), $reservation);
 
         return back()->with('success', 'Room reservada correctamente.');
     }

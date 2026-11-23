@@ -94,7 +94,7 @@ function ContractingWaitingRecommendation({ candidateId, documents = [], contrac
         ? <button type="button" onClick={() => router.post(content.href, {}, { preserveScroll: true })} className={`mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg ${tone[4]} px-4 py-2.5 text-xs font-medium text-white transition ${tone[5]}`}>{content.label} <FiArrowRight size={15} /></button>
         : <Link href={content.href} className={`mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg ${tone[4]} px-4 py-2.5 text-xs font-medium text-white transition ${tone[5]}`}>{content.label} <FiArrowRight size={15} /></Link>;
 
-    return <div className={`rounded-xl border ${tone[0]} bg-gradient-to-r ${tone[1]} to-[#151522] p-5 shadow-[0_12px_35px_rgba(116,31,145,.12)] sm:p-6`}>
+    return <div className={`candidate-next-step-card candidate-next-step-card--${content.tone} rounded-xl border ${tone[0]} bg-gradient-to-r ${tone[1]} to-[#151522] p-5 shadow-[0_12px_35px_rgba(116,31,145,.12)] sm:p-6`}>
         <div className="flex items-start gap-3"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${tone[3]} ${tone[2]}`}><FiFileText size={17} /></span><div><p className={`text-[10px] font-semibold uppercase tracking-[.18em] ${tone[2]}`}>Siguiente paso recomendado</p><h2 className="mt-3 text-base font-medium text-white">{content.title}</h2><p className="mt-1 text-xs leading-5 text-[#bdb3c5]">{content.description}</p></div></div>
         {action}
         <p className={`mt-4 flex items-center gap-2 text-xs ${tone[2]}`}><FiCheckCircle /> {received ? `${received} archivo${received === 1 ? '' : 's'} asociado${received === 1 ? '' : 's'} a contratación` : 'Solicitud de documentos enviada'}</p>
@@ -142,14 +142,14 @@ function ProcessStatusCarousel({ currentStatus }) {
 
     useEffect(() => setSelectedIndex(activeIndex), [activeIndex]);
 
-    return <div data-tour="candidate-process" className="rounded-xl border border-[#292d39] bg-[#11131c]/90 p-5 shadow-[0_18px_55px_rgba(0,0,0,.16)] sm:p-6">
+    return <div data-tour="candidate-process" className="process-status-carousel rounded-xl border border-[#292d39] bg-[#11131c]/90 p-5 shadow-[0_18px_55px_rgba(0,0,0,.16)] sm:p-6">
         <div className="flex items-center justify-between gap-4">
             <div><p className="text-[10px] uppercase tracking-[.18em] text-[#d56bea]">Estado del proceso</p><p className="mt-2 text-xs text-[#969baa]">La etapa activa se actualiza para todo el equipo en tiempo real.</p></div>
             <span className="rounded-full border border-[#9142a7]/60 bg-[#3d164d] px-3 py-1.5 text-xs text-[#f0c1fa]">{cleanStatusLabel(selectedStage?.[1])}</span>
         </div>
         <div className="mt-5 min-w-0 overflow-hidden">
             <div className="process-carousel-scroll flex gap-3 overflow-x-auto pb-3" aria-label="Etapas del proceso">
-                {stages.map(([value, label], index) => <div key={value} className={`min-w-[220px] flex-1 rounded-xl border p-4 text-left ${value === currentStatus ? 'border-[#c22be8] bg-[#291336] shadow-[0_0_18px_rgba(194,43,232,.18)]' : index === selectedIndex ? 'border-[#8c3c9e] bg-[#1b1625]' : 'border-[#343044] bg-[#151522]'}`}><div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-white">{cleanStatusLabel(label)}</span><span className={`h-2.5 w-2.5 rounded-full ${value === currentStatus ? 'bg-[#c22be8] shadow-[0_0_10px_#c22be8]' : 'bg-[#555064]'}`} /></div><p className="mt-3 text-xs leading-5 text-[#969baa]">{processStageDescriptions[value] || 'Etapa del proceso de selecci\u00f3n.'}</p>{value === currentStatus && <p className="mt-3 text-[10px] font-medium uppercase tracking-[.14em] text-[#e4a3f1]">Etapa activa</p>}</div>)}
+                {stages.map(([value, label], index) => <div key={value} className={`process-status-card ${value === currentStatus ? 'process-status-card--active' : index === selectedIndex ? 'process-status-card--selected' : ''} min-w-[220px] flex-1 rounded-xl border p-4 text-left ${value === currentStatus ? 'border-[#c22be8] bg-[#291336] shadow-[0_0_18px_rgba(194,43,232,.18)]' : index === selectedIndex ? 'border-[#8c3c9e] bg-[#1b1625]' : 'border-[#343044] bg-[#151522]'}`}><div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold text-white">{cleanStatusLabel(label)}</span><span className={`h-2.5 w-2.5 rounded-full ${value === currentStatus ? 'bg-[#c22be8] shadow-[0_0_10px_#c22be8]' : 'bg-[#555064]'}`} /></div><p className="mt-3 text-xs leading-5 text-[#969baa]">{processStageDescriptions[value] || 'Etapa del proceso de selecci\u00f3n.'}</p>{value === currentStatus && <p className="mt-3 text-[10px] font-medium uppercase tracking-[.14em] text-[#e4a3f1]">Etapa activa</p>}</div>)}
             </div>
         </div>
     </div>;

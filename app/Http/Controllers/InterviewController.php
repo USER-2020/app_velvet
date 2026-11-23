@@ -9,6 +9,7 @@ use App\Models\CandidateActivity;
 use App\Models\Interview;
 use App\Models\InterviewSlot;
 use App\Services\InterviewInvitationService;
+use App\Services\CandidateWorkflowAutomationService;
 use App\Services\RealtimePublisher;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
@@ -88,6 +89,13 @@ class InterviewController extends Controller
                 'notification' => ['title' => 'Horarios disponibles', 'description' => "Se generaron {$created} franjas de entrevista."],
             ]);
         }
+
+        Candidate::query()
+            ->where('status', CandidateStatus::PREQUALIFIED)
+            ->whereDoesntHave('interviews', fn ($query) => $query->whereIn('status', ['INVITED', 'SCHEDULED']))
+            ->with('lead')
+            ->get()
+            ->each(fn (Candidate $candidate) => app(CandidateWorkflowAutomationService::class)->continueAfterPrequalification($candidate));
 
         return back()->with('success', $created ? "Se generaron {$created} franjas de entrevista de una hora." : 'No había franjas nuevas para generar.');
     }

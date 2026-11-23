@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\CandidateStatus;
+use App\Http\Responses\ContractingBookingStatus;
 use App\Mail\ContractingScheduledMail;
 use App\Models\Candidate;
 use App\Models\CandidateActivity;
@@ -11,6 +12,7 @@ use App\Models\ContractInvitation;
 use App\Models\ContractSlot;
 use App\Models\LeadDocument;
 use App\Services\RealtimePublisher;
+use App\Support\ProcessSupport;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
@@ -23,14 +25,20 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
 
 class ContractingController extends Controller
 {
     private const TIMEZONE = 'America/Bogota';
 
-    public function booking(ContractInvitation $invitation, string $token): Response
+    public function booking(Request $request, ContractInvitation $invitation, string $token): Response|HttpResponse
     {
-        $this->validateContractInvitation($invitation, $token);
+        $this->validateContractInvitationLink($invitation, $token);
+        if ($invitation->status === 'USED') {
+            return ContractingBookingStatus::render($request, 'used');
+        }
+
+        $this->ensureContractInvitationAvailable($invitation);
         $slots = ContractSlot::query()->where('status', 'AVAILABLE')->where('starts_at', '>', now('UTC'))->orderBy('starts_at')->get()->map(fn (ContractSlot $slot) => $this->formatSlot($slot));
         $invitation->load('candidate.lead');
 
@@ -38,31 +46,51 @@ class ContractingController extends Controller
             'candidate' => ['name' => $invitation->candidate->lead->full_name, 'code' => $invitation->candidate->code],
             'slots' => $slots,
             'expiresAt' => $invitation->invitation_expires_at,
-            'actionUrl' => request()->fullUrl(),
+            'actionUrl' => $request->fullUrl(),
         ]);
     }
 
-    public function bookingSuccess(Request $request): Response
+    public function bookingSuccess(Request $request): Response|HttpResponse
     {
+        $confirmation = $request->session()->get('contract_booking_completed');
+        if (! $confirmation) {
+            return ContractingBookingStatus::render($request, 'confirmation');
+        }
+
         return Inertia::render('Public/ContractingBookingSuccess', [
-            'candidate' => $request->session()->get('contract_booking_completed.candidate'),
-            'scheduledAt' => $request->session()->get('contract_booking_completed.scheduled_at'),
+            'candidate' => $confirmation['candidate'],
+            'scheduledAt' => $confirmation['scheduled_at'],
+            'whatsappUrl' => ProcessSupport::whatsappUrl('Hola, necesito ayuda con mi cita de contratación en The Velvet Studio.'),
         ]);
     }
 
     public function bookPublic(Request $request, ContractInvitation $invitation, string $token): RedirectResponse
     {
-        $this->validateContractInvitation($invitation, $token);
+        $this->validateContractInvitationLink($invitation, $token);
+        if ($invitation->status === 'USED') {
+            return redirect()->to($request->fullUrl(), 303);
+        }
+
+        $this->ensureContractInvitationAvailable($invitation);
         $validated = $request->validate(['slot_id' => ['required', 'integer', 'exists:contract_slots,id']]);
 
-        $appointment = DB::transaction(function () use ($invitation, $validated): ContractAppointment {
+        $appointment = DB::transaction(function () use ($invitation, $validated, $token): ?ContractAppointment {
             $invitation = ContractInvitation::query()->with('candidate.lead')->lockForUpdate()->findOrFail($invitation->id);
-            $this->validateContractInvitation($invitation, request()->route('token'));
+            $this->validateContractInvitationLink($invitation, $token);
+            if ($invitation->status === 'USED') {
+                return null;
+            }
+
+            $this->ensureContractInvitationAvailable($invitation);
+            if ($invitation->candidate->contractAppointments()->where('status', 'SCHEDULED')->exists()) {
+                abort(409, 'Este candidato ya tiene una contratación programada.');
+            }
             $slot = ContractSlot::query()->lockForUpdate()->findOrFail($validated['slot_id']);
             $slotStart = Carbon::createFromFormat('Y-m-d H:i:s', $slot->getRawOriginal('starts_at'), 'UTC');
-            abort_if($slot->status !== 'AVAILABLE' || $slotStart->isPast(), 409, 'Este horario ya no está disponible. Elige otro.');
+            if ($slot->status !== 'AVAILABLE' || ! $slotStart->isFuture()) {
+                throw ValidationException::withMessages(['slot_id' => 'Este horario ya no está disponible. Elige otro.']);
+            }
 
-            $slot->update(['status' => 'BOOKED']);
             $appointment = ContractAppointment::create([
                 'candidate_id' => $invitation->candidate_id,
                 'contract_slot_id' => $slot->id,
@@ -81,6 +109,10 @@ class ContractingController extends Controller
 
             return $appointment->fresh(['candidate.lead', 'slot']);
         });
+
+        if (! $appointment) {
+            return redirect()->to($request->fullUrl(), 303);
+        }
 
         $activity = $appointment->candidate->activities()->latest('id')->first();
         app(RealtimePublisher::class)->publishLead($appointment->candidate->lead, 'candidate.status_changed', [
@@ -104,7 +136,7 @@ class ContractingController extends Controller
 
     public function index(): Response
     {
-        $slots = ContractSlot::query()->with('appointment.candidate.lead')
+        $slots = ContractSlot::query()->with('appointment.candidate.lead')->withCount('appointments')
             ->where('starts_at', '>=', now('UTC'))
             ->orderBy('starts_at')->limit(250)->get()
             ->map(fn (ContractSlot $slot) => $this->formatSlot($slot));
@@ -170,7 +202,7 @@ class ContractingController extends Controller
 
     public function destroyAvailableSlots(): RedirectResponse
     {
-        $deleted = ContractSlot::query()->where('status', 'AVAILABLE')->whereDoesntHave('appointment')->delete();
+        $deleted = ContractSlot::query()->where('status', 'AVAILABLE')->whereDoesntHave('appointments')->delete();
         return back()->with('success', $deleted ? "Se eliminaron {$deleted} franjas disponibles." : 'No había franjas disponibles para eliminar.');
     }
 
@@ -189,7 +221,6 @@ class ContractingController extends Controller
 
             $slot = ContractSlot::query()->lockForUpdate()->findOrFail($validated['slot_id']);
             abort_if($slot->status !== 'AVAILABLE' || $slot->starts_at->isPast(), 409, 'Esta franja ya no está disponible.');
-            $slot->update(['status' => 'BOOKED']);
             $appointment = ContractAppointment::create(['candidate_id' => $candidate->id, 'contract_slot_id' => $slot->id, 'created_by' => $request->user()->id, 'notes' => $validated['notes'] ?? null]);
             if ($candidate->status !== CandidateStatus::CONTRACTING) {
                 $candidate->update(['status' => CandidateStatus::CONTRACTING]);
@@ -227,8 +258,6 @@ class ContractingController extends Controller
             abort_if($newSlot->status !== 'AVAILABLE' || $newSlot->starts_at->isPast(), 409, 'La nueva franja ya no está disponible.');
             $oldSlotId = $appointment->contract_slot_id;
             $oldStartsAt = $appointment->slot?->starts_at?->toIso8601String();
-            $appointment->slot?->update(['status' => 'AVAILABLE']);
-            $newSlot->update(['status' => 'BOOKED']);
             $appointment->update(['contract_slot_id' => $newSlot->id]);
             $activity = CandidateActivity::create([
                 'candidate_id' => $appointment->candidate_id,
@@ -513,7 +542,11 @@ class ContractingController extends Controller
     {
         $startsAt = Carbon::createFromFormat('Y-m-d H:i:s', $slot->getRawOriginal('starts_at'), 'UTC')->setTimezone(self::TIMEZONE);
         $endsAt = Carbon::createFromFormat('Y-m-d H:i:s', $slot->getRawOriginal('ends_at'), 'UTC')->setTimezone(self::TIMEZONE);
-        return array_merge($slot->toArray(), ['starts_at' => $startsAt->toIso8601String(), 'ends_at' => $endsAt->toIso8601String()]);
+        return array_merge($slot->toArray(), [
+            'starts_at' => $startsAt->toIso8601String(),
+            'ends_at' => $endsAt->toIso8601String(),
+            'appointments_count' => $slot->appointments_count ?? ($slot->relationLoaded('appointments') ? $slot->appointments->count() : null),
+        ]);
     }
 
     private function publicDocumentRequirements(): array
@@ -562,11 +595,15 @@ class ContractingController extends Controller
         abort_unless($document->lead_id === $candidate->lead_id && $document->type === 'contract_document', 404);
     }
 
-    private function validateContractInvitation(ContractInvitation $invitation, string $token): void
+    private function validateContractInvitationLink(ContractInvitation $invitation, string $token): void
+    {
+        abort_unless(hash_equals($invitation->token_hash, hash('sha256', $token)), 403, 'El enlace de contratación no es válido.');
+        abort_unless($invitation->invitation_expires_at?->isFuture(), 410, 'Esta invitación ya venció.');
+    }
+
+    private function ensureContractInvitationAvailable(ContractInvitation $invitation): void
     {
         abort_unless($invitation->status === 'INVITED', 410, 'Esta invitación ya no está disponible.');
-        abort_unless($invitation->invitation_expires_at?->isFuture(), 410, 'Esta invitación ya venció.');
-        abort_unless(hash_equals($invitation->token_hash, hash('sha256', $token)), 403, 'El enlace de contratación no es válido.');
         abort_unless($invitation->candidate?->status === CandidateStatus::WAITING, 422, 'La candidata ya no está disponible para agendar contratación.');
     }
 }

@@ -33,6 +33,7 @@ use App\Services\ContractingInvitationService;
 use App\Services\AuditLogger;
 use App\Services\ProfilePhotoService;
 use App\Services\DiditEvidenceService;
+use App\Services\CandidateWorkflowAutomationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -82,7 +83,10 @@ class RecruitmentController extends Controller
         }
         $this->publishLeadEvent($lead, 'lead.created', ['notification' => ['title' => 'Nuevo lead recibido', 'description' => "{$lead->full_name} envió una aplicación."]]);
 
-        return Inertia::render('Public/ApplySuccess', ['lead' => ['code' => $lead->code, 'name' => $lead->full_name]]);
+        return Inertia::render('Public/ApplySuccess', [
+            'lead' => ['code' => $lead->code, 'name' => $lead->full_name],
+            'whatsappUrl' => $this->supportWhatsappUrl("Hola, soy {$lead->full_name}. Necesito ayuda con mi aplicación {$lead->code} de The Velvet Studio."),
+        ]);
     }
 
     public function prequalification(Request $request, Candidate $candidate, string $token): Response
@@ -122,6 +126,7 @@ class RecruitmentController extends Controller
     {
         return Inertia::render('Public/PrequalificationSuccess', [
             'candidate' => $request->session()->get('prequalification_completed'),
+            'whatsappUrl' => $this->supportWhatsappUrl('Hola, terminé mi precalificación y necesito ayuda con el siguiente paso de mi proceso en The Velvet Studio.'),
         ]);
     }
 
@@ -196,6 +201,7 @@ class RecruitmentController extends Controller
             report($exception);
         }
 
+        app(CandidateWorkflowAutomationService::class)->continueAfterPrequalification($candidate->fresh('lead'));
         $lead = $candidate->load('lead')->lead->fresh('candidate');
         $this->publishLeadEvent($lead, 'candidate.prequalification_completed', [
             'candidate_id' => $candidate->id,
@@ -826,12 +832,23 @@ class RecruitmentController extends Controller
         ])]);
     }
 
-    public function updateLeadStatus(Request $request, Lead $lead, InterviewInvitationService $invitationService, ApplicationDiscardMailService $discardMail, AdmittedMailService $admittedMail): RedirectResponse
+    public function updateLeadStatus(Request $request, Lead $lead, InterviewInvitationService $invitationService, ApplicationDiscardMailService $discardMail, AdmittedMailService $admittedMail, ConvertLeadToCandidate $convert, CandidateWorkflowAutomationService $automation): RedirectResponse
     {
         $lead->loadMissing('candidate.user');
         $allowed = $lead->candidate ? CandidateStatus::cases() : LeadStatus::cases();
         $validated = $request->validate(['status' => ['required', Rule::in(array_map(fn ($status) => $status->value, $allowed))]]);
         $previous = $lead->candidate?->status?->value ?: $lead->status?->value;
+
+        // Marcar un lead como calificado lo incorpora automáticamente al
+        // proceso de selección y dispara la precalificación. El endpoint
+        // explícito de conversión se conserva como fallback idempotente.
+        if (! $lead->candidate && $validated['status'] === LeadStatus::QUALIFIED->value) {
+            $candidate = $convert->handle($lead);
+            $automation->start($candidate);
+
+            return back()->with('success', "Lead convertido a {$candidate->code}; se inició la precalificación automática.");
+        }
+
         $discardTransition = $validated['status'] === CandidateStatus::DISCARDED->value
             && $previous !== CandidateStatus::DISCARDED->value
             && $previous !== LeadStatus::DISCARDED->value;
@@ -1009,9 +1026,10 @@ class RecruitmentController extends Controller
         return to_route('admin.leads')->with('success', 'Lead descartado correctamente.');
     }
 
-    public function convert(Lead $lead, ConvertLeadToCandidate $convert): RedirectResponse
+    public function convert(Lead $lead, ConvertLeadToCandidate $convert, CandidateWorkflowAutomationService $automation): RedirectResponse
     {
         $candidate = $convert->handle($lead);
+        $automation->start($candidate);
         $activity = $lead->activities()->latest('id')->first();
         $leadId = $lead->id;
         $candidateId = $candidate->id;
@@ -1793,10 +1811,13 @@ class RecruitmentController extends Controller
 
         if ($nextStatus === CandidateStatus::ACTIVE && $previousStatus !== CandidateStatus::ACTIVE) {
             try {
-                Mail::to($candidate->lead->email)->send(new CandidateActivatedMail($candidate));
+                // Do not hold the status transition open while the SMTP provider connects.
+                // The queued mailable keeps activation reliable even when SMTP is slow or
+                // temporarily unavailable; the queue worker can retry delivery separately.
+                Mail::to($candidate->lead->email)->queue(new CandidateActivatedMail($candidate));
             } catch (\Throwable $exception) {
                 report($exception);
-                return back()->withErrors(['status' => 'El perfil fue activado, pero no fue posible enviar el correo de confirmación. Revisa la configuración de correo.']);
+                return back()->with('warning', 'El perfil fue activado, pero el correo de confirmación quedó pendiente. Revisa la cola de correo.');
             }
         }
 
@@ -2142,5 +2163,14 @@ class RecruitmentController extends Controller
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function supportWhatsappUrl(string $message): ?string
+    {
+        $phone = preg_replace('/\D+/', '', (string) config('services.velvet.whatsapp_number'));
+        if (! $phone) return null;
+        if (! str_starts_with($phone, '57')) $phone = '57'.$phone;
+
+        return 'https://wa.me/'.$phone.'?text='.rawurlencode($message);
     }
 }

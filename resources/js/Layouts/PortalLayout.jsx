@@ -2,13 +2,13 @@ import { Link, usePage } from '@inertiajs/react';
 import { FiLogOut, FiMoon } from 'react-icons/fi';
 import PortalContractDocuments from '@/Components/PortalContractDocuments';
 
-export default function PortalLayout({ children, eyebrow, title, subtitle }) {
+export default function PortalLayout({ children, eyebrow, title, subtitle, navigation = null }) {
     const page = usePage();
     const user = page.props.auth?.user;
     const documents = page.props.contractDocuments;
 
-    return <div className="min-h-screen bg-[#08090f] text-[#f5f0f7]">
-        <header className="border-b border-[#252733] bg-[#0c0d14]/95">
+    return <div data-portal-shell className="min-h-screen bg-[#08090f] text-[#f5f0f7]">
+        <header data-portal-shell-header className="border-b border-[#252733] bg-[#0c0d14]/95">
             <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4 lg:px-10">
                 <Link href="/dashboard" className="flex items-center gap-3">
                     <span className="font-editorial text-2xl text-white">THE VELVET</span>
@@ -22,11 +22,16 @@ export default function PortalLayout({ children, eyebrow, title, subtitle }) {
             </div>
         </header>
         <main className="mx-auto max-w-[1440px] px-5 py-10 lg:px-10">
-            <p className="text-[10px] uppercase tracking-[.3em] text-[#d56bea]">{eyebrow}</p>
-            <h1 className="mt-3 font-editorial text-4xl text-white sm:text-5xl">{title}</h1>
-            <p className="mt-2 max-w-3xl text-sm text-[#969baa]">{subtitle}</p>
-            {children}
-            {Array.isArray(documents) && <PortalContractDocuments documents={documents} />}
+            <div className={`portal-layout${navigation ? ' portal-layout--with-navigation' : ''}`}>
+                {navigation && <aside className="portal-layout__sidebar">{navigation}</aside>}
+                <div className="portal-layout__content">
+                    <p className="text-[10px] uppercase tracking-[.3em] text-[#d56bea]">{eyebrow}</p>
+                    <h1 className="mt-3 font-editorial text-4xl text-white sm:text-5xl">{title}</h1>
+                    <p className="mt-2 max-w-3xl text-sm text-[#969baa]">{subtitle}</p>
+                    {children}
+                    {Array.isArray(documents) && <PortalContractDocuments documents={documents} />}
+                </div>
+            </div>
         </main>
     </div>;
 }

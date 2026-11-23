@@ -58,4 +58,30 @@ class AccessControlTest extends TestCase
 
         $this->actingAs($user)->get('/admin/access')->assertForbidden();
     }
+
+    public function test_admin_cannot_edit_super_admin_role(): void
+    {
+        $admin = User::factory()->create()->assignRole('admin');
+        $superAdmin = Role::where('slug', 'super_admin')->firstOrFail();
+
+        $this->actingAs($admin)->get("/admin/access/{$superAdmin->id}/edit")
+            ->assertForbidden();
+
+        $this->actingAs($admin)->withSession(['auth.password_confirmed_at' => time()])->put("/admin/access/{$superAdmin->id}", [
+            'name' => 'Super Administrador alterado',
+            'slug' => 'super_admin',
+            'description' => 'No debe cambiarse.',
+            'permissions' => [],
+        ])->assertForbidden();
+    }
+
+    public function test_admin_does_not_see_super_admin_role_in_role_list(): void
+    {
+        $admin = User::factory()->create()->assignRole('admin');
+
+        $this->actingAs($admin)->get('/admin/access')
+            ->assertInertia(fn ($page) => $page
+                ->where('roles', fn ($roles) => collect($roles)->where('slug', 'super_admin')->isEmpty())
+            );
+    }
 }

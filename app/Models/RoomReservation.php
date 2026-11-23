@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\UtcDateTime;
 use Illuminate\Database\Eloquent\Model;
 
 class RoomReservation extends Model
@@ -11,11 +12,11 @@ class RoomReservation extends Model
     protected function casts(): array
     {
         return [
-            'starts_at' => 'datetime',
-            'ends_at' => 'datetime',
-            'checked_in_at' => 'datetime',
-            'started_at' => 'datetime',
-            'ended_at' => 'datetime',
+            'starts_at' => UtcDateTime::class,
+            'ends_at' => UtcDateTime::class,
+            'checked_in_at' => UtcDateTime::class,
+            'started_at' => UtcDateTime::class,
+            'ended_at' => UtcDateTime::class,
         ];
     }
 

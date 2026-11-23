@@ -28,6 +28,8 @@ use Inertia\Response;
 
 class PortalRoomController extends Controller
 {
+    private const BUSINESS_TIMEZONE = 'America/Bogota';
+
     /** Shared, authorization must be enforced by the caller before using these payloads. */
     public function modelProfileForMonitor(Candidate $candidate): array
     {
@@ -185,12 +187,17 @@ class PortalRoomController extends Controller
         $candidate = $this->modelCandidate($request);
         abort_unless($candidate, 403, 'Tu usuario todavía no tiene una modelo vinculada.');
 
-        $data = $request->validate($this->reservationRules());
-        $reservation = $this->createReservation($request, $data, $candidate, null);
+        $batch = $request->has('slots');
+        $data = $request->validate($this->reservationRules($batch));
+        $reservations = $this->createReservations($request, $data, $candidate, null);
 
-        $this->publish('room.reservation.created', ['room_id' => $reservation->room_id, 'reservation_id' => $reservation->id]);
+        foreach ($reservations as $reservation) {
+            app(\App\Services\RoomReservationNotificationService::class)->notify($request->user(), $reservation);
+        }
 
-        return back()->with('success', 'La room quedó reservada correctamente.');
+        return back()->with('success', count($reservations) > 1
+            ? "Se programaron {$this->reservationCountLabel(count($reservations))} correctamente."
+            : 'La room quedó reservada correctamente.');
     }
 
     public function storeMonitorReservation(Request $request): RedirectResponse
@@ -200,7 +207,8 @@ class PortalRoomController extends Controller
         }
 
         abort_unless($request->user()->hasPermissionTo('rooms.manage_reservations'), 403);
-        $data = $request->validate(array_merge($this->reservationRules(), [
+        $batch = $request->has('slots');
+        $data = $request->validate(array_merge($this->reservationRules($batch), [
             'candidate_id' => ['required', 'integer', 'exists:candidates,id'],
         ]));
         $monitorCandidateId = Candidate::query()->where('user_id', $request->user()->id)->value('id');
@@ -211,11 +219,15 @@ class PortalRoomController extends Controller
                 ->where('monitor_candidate_id', $monitorCandidateId)
                 ->whereNull('ended_at'))
             ->firstOrFail();
-        $reservation = $this->createReservation($request, $data, $candidate, null);
+        $reservations = $this->createReservations($request, $data, $candidate, null);
 
-        $this->publish('room.reservation.created', ['room_id' => $reservation->room_id, 'reservation_id' => $reservation->id]);
+        foreach ($reservations as $reservation) {
+            app(\App\Services\RoomReservationNotificationService::class)->notify($request->user(), $reservation);
+        }
 
-        return back()->with('success', 'La reserva de la modelo quedó programada.');
+        return back()->with('success', count($reservations) > 1
+            ? "Se programaron {$this->reservationCountLabel(count($reservations))} para la modelo."
+            : 'La reserva de la modelo quedó programada.');
     }
 
     public function updateModelReservationStatus(Request $request, int $reservation): RedirectResponse
@@ -360,19 +372,44 @@ class PortalRoomController extends Controller
 
     private function storeTrainingReservation(Request $request, bool $monitor): RedirectResponse
     {
-        $rules = $this->reservationRules();
+        $batch = $request->has('slots');
+        $rules = $this->reservationRules($batch);
         $rules['room_id'] = ['required', 'integer', 'exists:training_records,id'];
         if ($monitor) $rules['candidate_id'] = ['required', 'integer', 'exists:training_records,id'];
         $data = $request->validate($rules);
         $room = TrainingRecord::query()->where('type', 'room')->findOrFail($data['room_id']);
         $model = $monitor ? TrainingRecord::query()->where('type', 'model')->findOrFail($data['candidate_id']) : TrainingRecord::query()->where('type', 'model')->first();
-        $startsAt = Carbon::parse($data['starts_at'], 'America/Bogota');
-        $endsAt = Carbon::parse($data['ends_at'], 'America/Bogota');
-        abort_if($startsAt->isPast(), 422, 'La reserva debe comenzar en el futuro.');
 
-        TrainingRecord::create(['type' => 'reservation', 'record_key' => 'training-reservation-'.uniqid(), 'owner_user_id' => $monitor ? null : $request->user()->id, 'payload' => ['room_key' => $room->record_key, 'model_key' => $model?->record_key, 'purpose' => $data['purpose'], 'starts_at' => $startsAt->utc()->toIso8601String(), 'ends_at' => $endsAt->utc()->toIso8601String(), 'status' => 'SCHEDULED', 'notes' => $data['notes'] ?? null]]);
+        $slots = $data['slots'] ?? [['starts_at' => $data['starts_at'], 'ends_at' => $data['ends_at']]];
+        $parsedSlots = [];
+        foreach ($slots as $index => $slot) {
+            $startsAt = $this->parseLocalReservationDateTime($slot['starts_at']);
+            $endsAt = $this->parseLocalReservationDateTime($slot['ends_at']);
+            abort_if($startsAt->isPast(), 422, "La franja {$index} debe comenzar en el futuro.");
+            abort_if($endsAt->lessThanOrEqualTo($startsAt), 422, "La franja {$index} debe terminar después de comenzar.");
+            foreach ($parsedSlots as $otherSlot) {
+                abort_if($startsAt->lessThan($otherSlot['endsAt']) && $endsAt->greaterThan($otherSlot['startsAt']), 422, 'Hay franjas de práctica cruzadas en el mismo lote.');
+            }
+            $parsedSlots[] = compact('startsAt', 'endsAt');
+        }
 
-        return back()->with('success', 'Registro de práctica creado en el sandbox.');
+        $existing = TrainingRecord::query()->where('type', 'reservation')->get();
+        foreach ($parsedSlots as $slot) {
+            $conflict = $existing->first(function (TrainingRecord $record) use ($room, $slot) {
+                $payload = $record->payload;
+                if (($payload['room_key'] ?? null) !== $room->record_key || ! in_array($payload['status'] ?? null, ['SCHEDULED', 'IN_USE'], true)) return false;
+                return Carbon::parse($payload['starts_at'])->lessThan($slot['endsAt']) && Carbon::parse($payload['ends_at'])->greaterThan($slot['startsAt']);
+            });
+            abort_if($conflict, 422, 'La room de práctica ya está reservada en una de las franjas seleccionadas.');
+        }
+
+        DB::transaction(function () use ($request, $monitor, $room, $model, $data, $parsedSlots) {
+            foreach ($parsedSlots as $slot) {
+                TrainingRecord::create(['type' => 'reservation', 'record_key' => 'training-reservation-'.uniqid(), 'owner_user_id' => $monitor ? null : $request->user()->id, 'payload' => ['room_key' => $room->record_key, 'model_key' => $model?->record_key, 'purpose' => $data['purpose'], 'starts_at' => $slot['startsAt']->toIso8601String(), 'ends_at' => $slot['endsAt']->toIso8601String(), 'status' => 'SCHEDULED', 'notes' => $data['notes'] ?? null]]);
+            }
+        });
+
+        return back()->with('success', count($parsedSlots) > 1 ? 'Franjas de práctica creadas en el sandbox.' : 'Registro de práctica creado en el sandbox.');
     }
 
     private function updateTrainingReservationStatus(Request $request, bool $monitor): RedirectResponse
@@ -390,7 +427,10 @@ class PortalRoomController extends Controller
     private function modelCandidate(Request $request): ?Candidate
     {
         return Candidate::query()
-            ->with('lead:id,first_name,last_name,email')
+            // El perfil operativo reutiliza los datos capturados en el onboarding.
+            // Mantenerlos en la selección evita que una relación ya cargada
+            // oculte atributos válidos detrás de "No registrado".
+            ->with('lead:id,first_name,last_name,email,phone,country,city,birth_date,availability,work_mode,experience,experience_years,speaks_english,english_level,motivation,source')
             ->where('candidate_type', 'MODEL')
             ->where(function ($query) use ($request) {
                 $query->where('user_id', $request->user()->id)
@@ -423,42 +463,66 @@ class PortalRoomController extends Controller
         abort_unless(Storage::disk('local')->exists($document->path), 404);
     }
 
-    private function createReservation(Request $request, array $data, Candidate $candidate, ?int $userId): RoomReservation
+    private function createReservations(Request $request, array $data, Candidate $candidate, ?int $userId): array
     {
-        $startsAt = Carbon::parse($data['starts_at'], 'America/Bogota')->utc();
-        $endsAt = Carbon::parse($data['ends_at'], 'America/Bogota')->utc();
-        if ($startsAt->isPast()) {
-            throw ValidationException::withMessages(['starts_at' => 'La reserva debe comenzar en el futuro.']);
+        // datetime-local no incluye zona horaria: sus valores representan la
+        // hora visible para la operación en Bogotá. Se convierte una sola vez
+        // a UTC antes de persistirlos.
+        $slots = $data['slots'] ?? [[
+            'starts_at' => $data['starts_at'],
+            'ends_at' => $data['ends_at'],
+        ]];
+        $parsedSlots = [];
+        foreach ($slots as $index => $slot) {
+            $startsAt = $this->parseLocalReservationDateTime($slot['starts_at']);
+            $endsAt = $this->parseLocalReservationDateTime($slot['ends_at']);
+            if ($startsAt->isPast()) {
+                $key = array_key_exists('slots', $data) ? "slots.{$index}.starts_at" : 'starts_at';
+                throw ValidationException::withMessages([$key => 'La reserva debe comenzar en el futuro.']);
+            }
+            if ($endsAt->lessThanOrEqualTo($startsAt)) {
+                $key = array_key_exists('slots', $data) ? "slots.{$index}.ends_at" : 'ends_at';
+                throw ValidationException::withMessages([$key => 'La hora de fin debe ser posterior a la de inicio.']);
+            }
+            $parsedSlots[] = compact('startsAt', 'endsAt');
         }
 
-        return DB::transaction(function () use ($request, $data, $startsAt, $endsAt, $candidate, $userId) {
+        return DB::transaction(function () use ($request, $data, $parsedSlots, $candidate, $userId) {
             $room = Room::query()->lockForUpdate()->findOrFail($data['room_id']);
             if (! $room->is_active || $room->status !== 'AVAILABLE') {
                 throw ValidationException::withMessages(['room_id' => 'La room no está disponible para nuevas reservas.']);
             }
 
-            $overlap = fn ($query) => $query->whereIn('status', ['SCHEDULED', 'IN_USE'])
-                ->where('starts_at', '<', $endsAt)
-                ->where('ends_at', '>', $startsAt)
-                ->lockForUpdate();
-            if ($overlap(RoomReservation::query()->where('room_id', $room->id))->exists()) {
-                throw ValidationException::withMessages(['starts_at' => 'La room ya está reservada en ese horario.']);
-            }
-            if ($overlap(RoomReservation::query()->where('candidate_id', $candidate->id))->exists()) {
-                throw ValidationException::withMessages(['starts_at' => 'La modelo ya tiene otra room asignada en ese horario.']);
+            foreach ($parsedSlots as $index => $slot) {
+                $overlap = fn ($query) => $query->whereIn('status', ['SCHEDULED', 'IN_USE'])
+                    ->where('starts_at', '<', $slot['endsAt'])
+                    ->where('ends_at', '>', $slot['startsAt'])
+                    ->lockForUpdate();
+                $errorKey = array_key_exists('slots', $data) ? "slots.{$index}.starts_at" : 'starts_at';
+                if ($overlap(RoomReservation::query()->where('room_id', $room->id))->exists()) {
+                    throw ValidationException::withMessages([$errorKey => 'La room ya está reservada en ese horario.']);
+                }
+                if ($overlap(RoomReservation::query()->where('candidate_id', $candidate->id))->exists()) {
+                    throw ValidationException::withMessages([$errorKey => 'La modelo ya tiene otra room asignada en ese horario.']);
+                }
+                foreach (array_slice($parsedSlots, $index + 1) as $otherSlot) {
+                    if ($slot['startsAt']->lessThan($otherSlot['endsAt']) && $slot['endsAt']->greaterThan($otherSlot['startsAt'])) {
+                        throw ValidationException::withMessages([$errorKey => 'Esta franja se cruza con otra franja del lote.']);
+                    }
+                }
             }
 
-            return RoomReservation::create([
+            return array_map(fn (array $slot) => RoomReservation::create([
                 'room_id' => $room->id,
                 'candidate_id' => $candidate->id,
                 'user_id' => $userId,
                 'reserved_by' => $request->user()->id,
                 'purpose' => $data['purpose'],
-                'starts_at' => $startsAt,
-                'ends_at' => $endsAt,
+                'starts_at' => $slot['startsAt'],
+                'ends_at' => $slot['endsAt'],
                 'status' => 'SCHEDULED',
                 'notes' => $data['notes'] ?? null,
-            ]);
+            ]), $parsedSlots);
         });
     }
 
@@ -505,20 +569,41 @@ class PortalRoomController extends Controller
         $this->publish('room.reservation.updated', ['room_id' => $reservation->room_id, 'reservation_id' => $reservation->id]);
     }
 
-    private function reservationRules(): array
+    private function reservationRules(bool $batch = false): array
     {
-        return [
+        $rules = [
             'room_id' => ['required', 'integer', 'exists:rooms,id'],
             'purpose' => ['required', 'string', 'max:180'],
-            'starts_at' => ['required', 'date'],
-            'ends_at' => ['required', 'date', 'after:starts_at'],
             'notes' => ['nullable', 'string', 'max:3000'],
         ];
+
+        if ($batch) {
+            return [...$rules,
+                'slots' => ['required', 'array', 'min:1', 'max:24'],
+                'slots.*.starts_at' => ['required', 'date_format:Y-m-d\\TH:i'],
+                'slots.*.ends_at' => ['required', 'date_format:Y-m-d\\TH:i'],
+            ];
+        }
+
+        return [...$rules,
+            'starts_at' => ['required', 'date_format:Y-m-d\\TH:i'],
+            'ends_at' => ['required', 'date_format:Y-m-d\\TH:i', 'after:starts_at'],
+        ];
+    }
+
+    private function reservationCountLabel(int $count): string
+    {
+        return $count === 1 ? '1 franja' : "{$count} franjas";
+    }
+
+    private function parseLocalReservationDateTime(string $value): Carbon
+    {
+        return Carbon::createFromFormat('!Y-m-d\\TH:i', $value, self::BUSINESS_TIMEZONE)->utc();
     }
 
     private function roomsPayload()
     {
-        $now = now('America/Bogota');
+        $now = now(self::BUSINESS_TIMEZONE);
         return Room::query()->with(['reservations' => function ($query) use ($now) {
             $query->whereIn('status', ['SCHEDULED', 'IN_USE'])
                 ->where('ends_at', '>=', $now->copy()->utc())
@@ -757,6 +842,9 @@ class PortalRoomController extends Controller
                 'account.status',
                 'account.is_authorized',
                 'account.linked_at',
+                'account.nickname_check_status',
+                'account.nickname_check_data',
+                'account.nickname_checked_at',
             ])
             ->map(fn ($account) => [
                 'id' => $account->id,
@@ -767,6 +855,9 @@ class PortalRoomController extends Controller
                 'status' => $account->status,
                 'is_authorized' => (bool) $account->is_authorized,
                 'linked_at' => $account->linked_at ? Carbon::parse($account->linked_at)->toIso8601String() : null,
+                'nickname_check_status' => $account->nickname_check_status,
+                'nickname_check_data' => $account->nickname_check_data ? json_decode($account->nickname_check_data, true) : null,
+                'nickname_checked_at' => $account->nickname_checked_at ? Carbon::parse($account->nickname_checked_at)->toIso8601String() : null,
             ])->all();
     }
 

@@ -86,6 +86,16 @@ class Candidate extends Model
             ->latestOfMany('assigned_at');
     }
 
+    public function wishlistItems()
+    {
+        return $this->hasMany(WishlistItem::class);
+    }
+
+    public function projections()
+    {
+        return $this->hasMany(ModelProjection::class);
+    }
+
     public function stationAssignmentsAsModel()
     {
         return $this->hasMany(StationAssignment::class, 'model_candidate_id');

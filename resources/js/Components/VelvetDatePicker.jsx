@@ -13,7 +13,7 @@ function dateFromValue(value) {
     return isValid(date) ? date : undefined;
 }
 
-export default function VelvetDatePicker({ label, value, onChange, error, minDate, maxDate, placeholder = 'dd/mm/aaaa', ariaLabel = 'Seleccionar fecha' }) {
+export default function VelvetDatePicker({ label, value, onChange, error, minDate, maxDate, placeholder = 'dd/mm/aaaa', ariaLabel = 'Seleccionar fecha', bare = false, ...rest }) {
     const [open, setOpen] = useState(false);
     const selected = dateFromValue(value);
     const defaultMaxDate = subYears(new Date(), 18);
@@ -26,12 +26,14 @@ export default function VelvetDatePicker({ label, value, onChange, error, minDat
         setOpen(false);
     };
 
+    const Wrapper = bare ? 'div' : 'label';
+
     return (
-        <label className="block text-xs font-medium text-gray-200">
-            {label}
+        <Wrapper className="block text-xs font-medium text-gray-200">
+            {!bare && label}
             <Popover.Root open={open} onOpenChange={setOpen}>
                 <Popover.Trigger asChild>
-                    <button type="button" aria-label={ariaLabel} className={`velvet-date-trigger ${selected ? 'text-[#f7f1fb]' : 'text-gray-500'} ${error ? 'border-red-400' : ''}`}>
+                    <button type="button" data-tour={rest['data-tour']} aria-label={ariaLabel} className={`velvet-date-trigger ${selected ? 'text-[#f7f1fb]' : 'text-gray-500'} ${error ? 'border-red-400' : ''}`}>
                         <span>{selected ? format(selected, 'dd/MM/yyyy') : placeholder}</span>
                         <CalendarDays size={17} strokeWidth={1.8} className="text-gray-400" />
                     </button>
@@ -75,6 +77,6 @@ export default function VelvetDatePicker({ label, value, onChange, error, minDat
                 </Popover.Portal>
             </Popover.Root>
             {error && <span className="mt-1 block text-xs text-red-400">{error}</span>}
-        </label>
+        </Wrapper>
     );
 }

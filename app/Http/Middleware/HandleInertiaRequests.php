@@ -2,15 +2,16 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\CandidateStatus;
+use App\Models\SystemSetting;
+use App\Models\User;
+use App\Models\UserTourProgress;
+use App\Services\GroqChatService;
+use App\Services\NotificationService;
+use App\Services\RealtimePublisher;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
-use App\Services\RealtimePublisher;
-use App\Services\NotificationService;
-use App\Enums\CandidateStatus;
-use App\Models\UserTourProgress;
-use App\Models\User;
-use App\Models\SystemSetting;
-use Illuminate\Database\QueryException;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -70,6 +71,9 @@ class HandleInertiaRequests extends Middleware
             'guidedTours' => [
                 'enabled' => $this->guidedToursEnabled(),
             ],
+            'groqAssistant' => [
+                'enabled' => $this->groqAssistantEnabled(),
+            ],
             'realtime' => $user ? [
                 'counters' => app(RealtimePublisher::class)->counters(),
                 'notifications' => app(NotificationService::class)->forUser($user),
@@ -114,6 +118,15 @@ class HandleInertiaRequests extends Middleware
             }
 
             throw $exception;
+        }
+    }
+
+    private function groqAssistantEnabled(): bool
+    {
+        try {
+            return app(GroqChatService::class)->enabled();
+        } catch (QueryException $exception) {
+            return false;
         }
     }
 

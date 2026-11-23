@@ -1,5 +1,9 @@
 # Despliegue seguro a producción
 
+Para la operación diaria de correos encolados, workers, scheduler y limpieza
+segura de fallos, consulta
+[OPERACION_COLAS_Y_SCHEDULER_PRODUCCION.md](OPERACION_COLAS_Y_SCHEDULER_PRODUCCION.md).
+
 Esta guía aplica los módulos operativos Velvet Master, Spatie Permission, los portales de modelo/monitor y la foto de perfil privada sin borrar información existente.
 
 ## Reglas no negociables

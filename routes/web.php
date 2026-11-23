@@ -22,6 +22,9 @@ use App\Http\Controllers\StudioOperationsController;
 use App\Http\Controllers\MasterOperationsController;
 use App\Http\Controllers\PlatformDocumentationController;
 use App\Http\Controllers\AgentWorkSessionController;
+use App\Http\Controllers\GroqAssistantController;
+use App\Http\Controllers\ModelPlanningController;
+use App\Http\Controllers\ModelPortalController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -29,6 +32,8 @@ Route::get('/', [AuthenticatedSessionController::class, 'create'])->name('home')
 Route::get('/apply', [RecruitmentController::class, 'apply'])->name('apply');
 Route::get('/politica-de-privacidad', fn () => Inertia::render('Public/PrivacyPolicy'))->name('privacy');
 Route::get('/terminos-y-condiciones', fn () => Inertia::render('Public/TermsAndConditions'))->name('terms');
+Route::get('/wishlist/share/{token}', [ModelPlanningController::class, 'publicWishlist'])->name('wishlist.share');
+Route::get('/wishlist/share/{token}/image/{item}', [ModelPlanningController::class, 'publicWishlistImage'])->name('wishlist.share.image');
 Route::post('/apply', [RecruitmentController::class, 'store'])->middleware('throttle:10,1')->name('apply.store');
 Route::get('/apply/draft', [OnboardingDraftController::class, 'show'])->name('apply.draft.show');
 Route::post('/apply/draft', [OnboardingDraftController::class, 'store'])->middleware('throttle:60,1')->name('apply.draft.store');
@@ -52,6 +57,7 @@ Route::get('/contratacion/{candidate}/{token}/documentos/realtime-token', [Contr
 Route::get('/contratacion/{candidate}/{token}/documentos/{document}/vista', [ContractingController::class, 'previewPublicDocument'])->middleware('signed')->name('contracting.documents.preview');
 Route::get('/contratacion/{candidate}/{token}/documentos/{document}/descarga', [ContractingController::class, 'downloadPublicDocument'])->middleware('signed')->name('contracting.documents.download');
 Route::post('/cookie-consent', [CookieConsentController::class, 'store'])->middleware('throttle:20,1')->name('cookie-consent.store');
+Route::get('/csrf-token', fn () => response()->json(['token' => csrf_token()]))->name('csrf-token');
 
 Route::get('/dashboard', function () {
     if (request()->user()->hasRole('model')) {
@@ -66,11 +72,24 @@ Route::get('/dashboard', function () {
 
 Route::middleware('auth')->group(function () {
     Route::put('/tour-progress/{tourKey}', [TourProgressController::class, 'update'])->name('tour-progress.update');
+    Route::post('/ai/chat', [GroqAssistantController::class, 'chat'])->middleware(['permission:ai.chat', 'throttle:20,1'])->name('ai.chat');
     Route::middleware(['permission:rooms.view_own', 'active.profile'])->prefix('model')->name('model.')->group(function () {
         Route::get('/dashboard', [PortalRoomController::class, 'modelDashboard'])->name('dashboard');
         Route::get('/rooms', [PortalRoomController::class, 'modelRooms'])->name('rooms');
         Route::get('/profile', [PortalRoomController::class, 'modelProfile'])->middleware('permission:profile.view_own')->name('profile');
-        Route::get('/work-sessions', [AgentWorkSessionController::class, 'index'])->middleware('permission:metrics.view_own')->name('work-sessions');
+        Route::get('/work-sessions', [AgentWorkSessionController::class, 'index'])->middleware('permission:metrics.view_own|models.view_metrics')->name('work-sessions');
+        Route::get('/time', [ModelPortalController::class, 'time'])->middleware('permission:metrics.view_own')->name('time');
+        Route::get('/activity', [ModelPortalController::class, 'activity'])->middleware('permission:profile.view_own')->name('activity');
+        Route::get('/agenda', [ModelPortalController::class, 'agenda'])->middleware('permission:profile.view_own')->name('agenda');
+        Route::get('/requests', [ModelPortalController::class, 'requests'])->middleware('permission:requests.view_own')->name('requests');
+        Route::get('/platform-requests', [ModelPortalController::class, 'platformRequests'])->middleware('permission:requests.view_own')->name('platform-requests');
+        Route::post('/platform-requests', [ModelPortalController::class, 'storePlatformRequest'])->middleware('permission:requests.create')->name('platform-requests.store');
+        Route::get('/planning', [ModelPlanningController::class, 'model'])->middleware('permission:planning.view_own')->name('planning');
+        Route::post('/planning/share', [ModelPlanningController::class, 'createWishlistShare'])->middleware('permission:planning.view_own')->name('planning.share');
+        Route::post('/planning/wishlist', [ModelPlanningController::class, 'storeWishlist'])->middleware('permission:planning.manage_own')->name('planning.wishlist.store');
+        Route::post('/planning/link-preview', [ModelPlanningController::class, 'linkPreview'])->middleware(['permission:planning.view_own', 'throttle:12,1'])->name('planning.link-preview');
+        Route::patch('/planning/wishlist/{item}', [ModelPlanningController::class, 'updateWishlist'])->middleware('permission:planning.manage_own')->name('planning.wishlist.update');
+        Route::delete('/planning/wishlist/{item}', [ModelPlanningController::class, 'destroyWishlist'])->middleware('permission:planning.manage_own')->name('planning.wishlist.destroy');
         Route::post('/rooms/reservations', [PortalRoomController::class, 'storeModelReservation'])->middleware(['permission:rooms.reserve_own', 'active.profile'])->name('rooms.reservations.store');
         Route::patch('/rooms/reservations/{reservation}/status', [PortalRoomController::class, 'updateModelReservationStatus'])->middleware(['permission:rooms.use_own', 'active.profile'])->name('rooms.reservations.status.update');
     });
@@ -84,21 +103,36 @@ Route::middleware('auth')->group(function () {
     Route::middleware(['permission:models.view_assigned', 'active.profile'])->prefix('monitor/models')->name('monitor.models.')->group(function () {
         Route::get('/', [RecruitmentController::class, 'monitorModels'])->name('index');
         Route::get('/{candidate}', [RecruitmentController::class, 'monitorModel'])->name('show');
+        Route::post('/{candidate}/platform-accounts/discover', [OperationalProfileController::class, 'discoverPlatformIdentity'])->middleware('permission:studio_accounts.assign_assigned')->name('platform-accounts.discover');
+        Route::post('/{candidate}/platform-accounts/validate-nickname', [OperationalProfileController::class, 'validatePlatformNickname'])->middleware('permission:studio_accounts.assign_assigned')->name('platform-accounts.validate-nickname');
         Route::post('/{candidate}/platform-accounts', [OperationalProfileController::class, 'linkAssignedPlatformAccount'])->middleware('permission:studio_accounts.assign_assigned')->name('platform-accounts.store');
         Route::delete('/{candidate}/platform-accounts/{modelPlatformAccount}', [OperationalProfileController::class, 'unlinkAssignedPlatformAccount'])->middleware('permission:studio_accounts.assign_assigned')->name('platform-accounts.destroy');
     });
     Route::get('/realtime/token', [PortalRoomController::class, 'realtimeToken'])->name('realtime.token');
+    Route::get('/planning/wishlist/{item}/image', [ModelPlanningController::class, 'wishlistImage'])->name('planning.wishlist.image');
+    Route::post('/planning/strategies', [ModelPlanningController::class, 'storeProjection'])->middleware('permission:planning.manage_team')->name('planning.strategies.store');
+    Route::patch('/planning/strategies/{projection}', [ModelPlanningController::class, 'updateProjection'])->middleware('permission:planning.manage_team')->name('planning.strategies.update');
+    Route::delete('/planning/strategies/{projection}', [ModelPlanningController::class, 'destroyProjection'])->middleware('permission:planning.manage_team')->name('planning.strategies.destroy');
+    Route::get('/monitor/planning', [ModelPlanningController::class, 'team'])->middleware(['permission:models.view_assigned', 'active.profile'])->name('monitor.planning');
+    Route::get('/admin/model-planning', [ModelPlanningController::class, 'team'])->middleware('permission:models.view_all|models.view_assigned')->name('admin.model-planning');
     Route::post('/portal/requests', [StudioOperationsController::class, 'storeRequest'])->middleware('permission:requests.create')->name('portal.requests.store');
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::get('/notifications/history', [NotificationController::class, 'history'])->name('notifications.history');
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
     Route::middleware('permission:documents.view_own')->prefix('portal/documents')->name('portal.documents.')->group(function () {
         Route::get('/{document}/preview', [PortalRoomController::class, 'previewContractDocument'])->name('preview');
         Route::get('/{document}/download', [PortalRoomController::class, 'downloadContractDocument'])->name('download');
     });
     Route::prefix('admin')->name('admin.')->group(function () {
+        Route::get('/ai-assistant', [GroqAssistantController::class, 'index'])->middleware('permission:ai.manage')->name('ai.index');
+        Route::put('/ai-assistant', [GroqAssistantController::class, 'update'])->middleware('permission:ai.manage')->name('ai.update');
         Route::get('/work-sessions', [AgentWorkSessionController::class, 'index'])->middleware('permission:dashboard.view')->name('work-sessions');
         Route::get('/guided-tours', [GuidedTourSettingsController::class, 'index'])->name('guided-tours.index');
         Route::put('/guided-tours', [GuidedTourSettingsController::class, 'update'])->name('guided-tours.update');
         Route::prefix('documentation')->name('documentation.')->group(function () {
             Route::get('/', [PlatformDocumentationController::class, 'index'])->name('index');
+            Route::get('/guides/{guide}', [PlatformDocumentationController::class, 'guide'])->name('guide');
+            Route::get('/guides/{guide}/video', [PlatformDocumentationController::class, 'guideVideo'])->name('guide-video');
             Route::get('/{documentation}/download', [PlatformDocumentationController::class, 'download'])->name('download');
             Route::get('/references/{key}', [PlatformDocumentationController::class, 'reference'])->name('reference');
             Route::middleware('permission:super_admin')->group(function () {
@@ -127,6 +161,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/platforms', [MasterOperationsController::class, 'platforms'])->middleware('permission:platforms.view')->name('platforms.index');
         Route::post('/platforms', [MasterOperationsController::class, 'storePlatform'])->middleware('permission:platforms.manage')->name('platforms.store');
         Route::post('/platforms/accounts', [MasterOperationsController::class, 'storeStudioAccount'])->middleware('permission:studio_accounts.manage')->name('platforms.accounts.store');
+        Route::post('/platforms/accounts/{studioAccount}/chaturbate/connect', [MasterOperationsController::class, 'connectChaturbate'])->middleware('permission:studio_accounts.manage')->name('platforms.accounts.chaturbate.connect');
+        Route::post('/platforms/accounts/{studioAccount}/chaturbate/sync', [MasterOperationsController::class, 'syncChaturbate'])->middleware('permission:studio_accounts.manage')->name('platforms.accounts.chaturbate.sync');
+        Route::post('/platforms/accounts/camgirlfinder/discover', [MasterOperationsController::class, 'discoverModelIdentity'])->middleware('permission:studio_accounts.manage')->name('platforms.accounts.camgirlfinder.discover');
+        Route::post('/platforms/accounts/camgirlfinder/validate-nickname', [MasterOperationsController::class, 'validateModelNickname'])->middleware('permission:studio_accounts.manage')->name('platforms.accounts.camgirlfinder.validate-nickname');
         Route::post('/platforms/accounts/{studioAccount}/models', [MasterOperationsController::class, 'linkModelAccount'])->middleware('permission:studio_accounts.manage')->name('platforms.accounts.models.store');
         Route::post('/platforms/accounts/{studioAccount}/simulate-sync', [MasterOperationsController::class, 'simulateSync'])->middleware('permission:platform_simulations.run')->name('platforms.accounts.sync.simulate');
         Route::post('/platforms/accounts/{studioAccount}/import', [MasterOperationsController::class, 'importManual'])->middleware('permission:platform_imports.manage')->name('platforms.accounts.import');

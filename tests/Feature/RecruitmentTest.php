@@ -16,6 +16,7 @@ use App\Mail\ContractingInvitationMail;
 use App\Mail\ContractingScheduledMail;
 use Carbon\Carbon;
 use App\Models\InterviewSlot;
+use App\Services\CandidateWorkflowAutomationService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -79,6 +80,67 @@ class RecruitmentTest extends TestCase
         // interrumpida después de confirmar la conversión.
         $this->actingAs($user)->post("/admin/leads/{$lead->id}/convert")->assertRedirect();
         $this->assertDatabaseCount('candidates', 1);
+    }
+
+    public function test_converting_a_lead_automatically_starts_prequalification(): void
+    {
+        Mail::fake();
+        $payload = $this->applicationPayload();
+        unset($payload['data_consent']);
+        $lead = Lead::create(['code' => 'VEL-LEAD-000015', 'status' => 'NEW', ...$payload]);
+        $user = User::factory()->create()->assignRole('recruiter');
+
+        $this->actingAs($user)->post("/admin/leads/{$lead->id}/convert")->assertRedirect();
+
+        $candidate = Candidate::query()->where('lead_id', $lead->id)->firstOrFail();
+        $this->assertSame('CONTACTED', $candidate->status->value);
+        $this->assertNotNull($candidate->prequalification_token_hash);
+        $this->assertDatabaseHas('candidate_activities', ['candidate_id' => $candidate->id, 'type' => 'automation_prequalification_sent']);
+        Mail::assertSent(PrequalificationFormMail::class);
+    }
+
+    public function test_qualifying_a_lead_automatically_converts_it_and_starts_prequalification(): void
+    {
+        Mail::fake();
+        $payload = $this->applicationPayload();
+        unset($payload['data_consent']);
+        $lead = Lead::create(['code' => 'VEL-LEAD-000017', 'status' => 'CONTACTED', ...$payload]);
+        $user = User::factory()->create()->assignRole('recruiter');
+
+        $this->actingAs($user)->patch("/admin/leads/{$lead->id}/status", ['status' => 'QUALIFIED'])->assertRedirect();
+
+        $candidate = Candidate::query()->where('lead_id', $lead->id)->firstOrFail();
+        $this->assertDatabaseHas('leads', ['id' => $lead->id, 'status' => 'CONVERTED']);
+        $this->assertSame('CONTACTED', $candidate->status->value);
+        $this->assertDatabaseHas('candidate_activities', ['candidate_id' => $candidate->id, 'type' => 'automation_prequalification_sent']);
+        Mail::assertSent(PrequalificationFormMail::class);
+    }
+
+    public function test_completed_prequalification_automatically_invites_interview_when_slots_exist(): void
+    {
+        Mail::fake();
+        $payload = $this->applicationPayload();
+        unset($payload['data_consent']);
+        $lead = Lead::create(['code' => 'VEL-LEAD-000016', 'status' => 'CONVERTED', ...$payload]);
+        $candidate = Candidate::create([
+            'code' => 'VEL-CAN-000011',
+            'lead_id' => $lead->id,
+            'candidate_type' => 'MODEL',
+            'status' => 'PREQUALIFIED',
+            'prequalification_completed_at' => now(),
+        ]);
+        InterviewSlot::create([
+            'starts_at' => now()->addDays(2),
+            'ends_at' => now()->addDays(2)->addHour(),
+            'status' => 'AVAILABLE',
+        ]);
+
+        app(CandidateWorkflowAutomationService::class)->continueAfterPrequalification($candidate->fresh('lead'));
+
+        $this->assertSame('INTERVIEW', $candidate->fresh()->status->value);
+        $this->assertDatabaseHas('interviews', ['candidate_id' => $candidate->id, 'status' => 'INVITED']);
+        $this->assertDatabaseHas('candidate_activities', ['candidate_id' => $candidate->id, 'type' => 'automation_interview_invited']);
+        Mail::assertSent(InterviewInvitationMail::class);
     }
 
     public function test_authenticated_recruiter_can_load_the_real_dashboard_data(): void
@@ -410,15 +472,121 @@ class RecruitmentTest extends TestCase
         });
         $this->assertDatabaseHas('candidate_activities', ['candidate_id' => $candidate->id, 'type' => 'contracting_invited']);
         $this->get($bookingUrl)->assertOk()->assertInertia(fn ($page) => $page->component('Public/ContractingBooking')->has('slots', 1));
-        $this->post($bookingUrl, ['slot_id' => ContractSlot::firstOrFail()->id])->assertRedirect(route('contracting.booking.success'));
+        $slot = ContractSlot::firstOrFail();
+        $slot->update(['status' => 'BLOCKED']);
+        $this->from($bookingUrl)->post($bookingUrl, ['slot_id' => $slot->id])
+            ->assertRedirect($bookingUrl)
+            ->assertSessionHasErrors('slot_id');
+        $this->assertDatabaseCount('contract_appointments', 0);
+        $slot->update(['status' => 'AVAILABLE']);
+
+        $this->post($bookingUrl, ['slot_id' => $slot->id])->assertRedirect(route('contracting.booking.success'));
         $this->assertDatabaseHas('candidates', ['id' => $candidate->id, 'status' => 'CONTRACTING']);
         $this->assertDatabaseHas('contract_appointments', ['candidate_id' => $candidate->id, 'status' => 'SCHEDULED']);
+        $this->get(route('contracting.booking.success'))->assertOk()->assertInertia(fn ($page) => $page
+            ->component('Public/ContractingBookingSuccess')
+            ->where('candidate.code', $candidate->code)
+            ->has('scheduledAt'));
+        $this->get($bookingUrl)->assertOk()->assertInertia(fn ($page) => $page
+            ->component('Public/ContractingBookingStatus')
+            ->where('state', 'used')
+            ->missing('candidate'));
+        $this->post($bookingUrl, ['slot_id' => $slot->id])
+            ->assertStatus(303)
+            ->assertRedirect($bookingUrl);
+        $this->assertDatabaseCount('contract_appointments', 1);
+        Mail::assertSent(ContractingScheduledMail::class, 1);
         Mail::assertSent(ContractingScheduledMail::class, function (ContractingScheduledMail $mail) {
             $expectedStart = Carbon::createFromFormat('Y-m-d H:i:s', $mail->appointment->slot->getRawOriginal('starts_at'), 'UTC')->setTimezone('America/Bogota');
 
             return count($mail->attachments()) === 1
                 && str_contains($mail->render(), $expectedStart->format('H:i'));
         });
+    }
+
+    public function test_public_contracting_invitation_errors_have_a_support_page(): void
+    {
+        config(['services.velvet.whatsapp_number' => '310 123 4567']);
+        $payload = $this->applicationPayload();
+        unset($payload['data_consent']);
+        $lead = Lead::create(['code' => 'VEL-LEAD-100001', 'status' => 'CONVERTED', ...$payload]);
+        $candidate = Candidate::create(['code' => 'VEL-CAN-100001', 'lead_id' => $lead->id, 'candidate_type' => 'MODEL', 'status' => 'WAITING']);
+        $invitation = ContractInvitation::create([
+            'candidate_id' => $candidate->id,
+            'token_hash' => hash('sha256', 'demo-booking-token'),
+            'invitation_expires_at' => now()->addHour(),
+            'status' => 'EXPIRED',
+        ]);
+        $params = ['invitation' => $invitation->id, 'token' => 'demo-booking-token'];
+
+        $this->get(URL::temporarySignedRoute('contracting.booking.show', now()->addHour(), $params))
+            ->assertStatus(410)
+            ->assertInertia(fn ($page) => $page->component('Public/ContractingBookingStatus')
+                ->where('state', 'unavailable')
+                ->where('whatsappUrl', fn ($url) => str_starts_with($url, 'https://wa.me/573101234567?text='))
+                ->missing('candidate'));
+
+        $this->get(URL::temporarySignedRoute('contracting.booking.show', now()->subMinute(), $params))
+            ->assertStatus(410)
+            ->assertInertia(fn ($page) => $page->component('Public/ContractingBookingStatus')->where('state', 'expired'));
+
+        $invitation->update(['status' => 'USED', 'used_at' => now()]);
+        $this->get(URL::temporarySignedRoute('contracting.booking.show', now()->addHour(), [...$params, 'token' => 'wrong-token']))
+            ->assertForbidden()
+            ->assertInertia(fn ($page) => $page->component('Public/ContractingBookingStatus')->where('state', 'invalid')->missing('candidate'));
+
+        $this->get(route('contracting.booking.show', $params))
+            ->assertForbidden()
+            ->assertInertia(fn ($page) => $page->component('Public/ContractingBookingStatus')->where('state', 'invalid'));
+
+        $this->get(route('contracting.booking.success'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Public/ContractingBookingStatus')->where('state', 'confirmation'));
+    }
+
+    public function test_contracting_slot_can_be_selected_by_multiple_candidates(): void
+    {
+        Mail::fake();
+        $user = User::factory()->create()->assignRole('hr');
+        $slot = ContractSlot::create([
+            'starts_at' => now()->addDays(4),
+            'ends_at' => now()->addDays(4)->addHour(),
+            'status' => 'AVAILABLE',
+            'created_by' => $user->id,
+        ]);
+
+        $bookingUrls = [];
+        foreach (['first', 'second'] as $suffix) {
+            $payload = $this->applicationPayload();
+            unset($payload['data_consent']);
+            $payload['email'] = "contracting-{$suffix}@example.com";
+            $lead = Lead::create(['code' => 'VEL-LEAD-' . ($suffix === 'first' ? '000013' : '000014'), 'status' => 'CONVERTED', ...$payload]);
+            $candidate = Candidate::create([
+                'code' => 'VEL-CAN-' . ($suffix === 'first' ? '000009' : '000010'),
+                'lead_id' => $lead->id,
+                'candidate_type' => 'MODEL',
+                'status' => 'WAITING',
+            ]);
+            $token = "contracting-{$suffix}-token";
+            $invitation = ContractInvitation::create([
+                'candidate_id' => $candidate->id,
+                'token_hash' => hash('sha256', $token),
+                'invitation_expires_at' => now()->addHour(),
+                'status' => 'INVITED',
+            ]);
+            $bookingUrls[] = URL::temporarySignedRoute('contracting.booking.show', now()->addHour(), [
+                'invitation' => $invitation->id,
+                'token' => $token,
+            ]);
+        }
+
+        foreach ($bookingUrls as $bookingUrl) {
+            $this->post($bookingUrl, ['slot_id' => $slot->id])->assertRedirect(route('contracting.booking.success'));
+        }
+
+        $this->assertSame('AVAILABLE', $slot->fresh()->status);
+        $this->assertDatabaseCount('contract_appointments', 2);
+        $this->assertDatabaseHas('contract_appointments', ['contract_slot_id' => $slot->id, 'status' => 'SCHEDULED']);
     }
 
     public function test_verified_contract_documents_do_not_send_agenda_without_future_slots(): void

@@ -82,6 +82,20 @@ Cuando existe un archivo, el enlace público expone vista y descarga únicamente
 - Si el perfil de modelo/monitor no está activo, `EnsureActiveOperationalProfile` marca `training_mode` para usar el dataset aislado de `TrainingRecord`; si el usuario está desactivado, cierra la sesión.
 - Administración: `/admin/rooms` gestiona catálogo, estado, reservas y uso.
 
+Los portales de modelo y monitor permiten programar lotes de hasta 24 franjas.
+Cada franja se convierte desde `America/Bogota` a UTC una sola vez. La
+transacción bloquea la room y rechaza solapamientos de la room, de la modelo o
+entre franjas del mismo lote; por eso una solicitud parcial nunca deja la room
+en un estado inconsistente. Los estados `SCHEDULED` e `IN_USE` ocupan el
+espacio; los estados finales no lo bloquean.
+
+Cuando se crea una reserva para una modelo, `RoomReservationNotificationService`
+registra `room_reservation_scheduled`, publica `room.reservation.created` con
+destinatario privado, y encola `RoomReservationScheduledMail` con un archivo
+`.ics`. El layout del portal filtra el evento por usuario y las páginas de
+dashboard, agenda, bitácora y rooms actualizan sus props mediante Inertia. Si
+Ably está desactivado, la persistencia y la recarga manual siguen funcionando.
+
 ### Inicio y finalización de turnos
 
 Cuando una reserva pertenece a un turno operativo, el monitor puede iniciarla desde `/monitor/rooms`. El backend valida que la modelo esté asignada al monitor, cambia la reserva a `IN_USE`, abre `ShiftAttendance` y crea la `operational_session` vinculada. Al finalizar, cambia a `COMPLETED`, cierra asistencia/sesión y calcula los minutos efectivos.
@@ -109,6 +123,11 @@ El panel escucha `room.reservation.updated` y `operation.attendance.updated` por
 
 ## Notificaciones y tiempo real
 
-`RealtimePublisher` crea notificaciones persistidas por roles mediante `NotificationService` y publica en Ably si `services.ably.api_key` está configurada. Canales derivados: leads, rooms, interviews y onboarding. La ausencia de Ably no debe bloquear la operación.
+`RealtimePublisher` crea notificaciones persistidas por roles o por usuario
+mediante `NotificationService` y publica en Ably si `services.ably.api_key` está
+configurada. Canales derivados: leads, rooms, interviews y onboarding. Las
+notificaciones de reservas de room se dirigen por `notification_user_ids` y no
+se comparten con otros usuarios. La ausencia de Ably no debe bloquear la
+operación.
 
 La barra superior obtiene contadores y notificaciones mediante props compartidas por `HandleInertiaRequests`; el usuario puede marcar todas como leídas en `/admin/notifications/read-all`.

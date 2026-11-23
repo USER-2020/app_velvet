@@ -6,6 +6,34 @@ actual de los flujos internos y públicos de la plataforma.
 > Mantener este documento actualizado cuando cambien módulos, permisos,
 > transiciones de estado, rutas públicas, pruebas o visitas guiadas.
 
+## Manual operativo del dashboard
+
+Abre **Documentación → Manual funcional por módulo**. El catálogo muestra
+los pasos y enlaces según los permisos efectivos de tu cuenta. Algunos módulos
+también requieren un perfil operativo, una asignación o una etapa determinada.
+Usa el buscador y el filtro de área para encontrar una tarea. Cada guía ofrece
+instrucciones escritas, un video MP4 y, cuando corresponde, un
+enlace al módulo para practicar con los controles del dashboard.
+
+El catálogo funcional se mantiene en `resources/documentation/dashboard.php`. Usa los
+nombres de acciones, rutas y restricciones vigentes al actualizar un flujo.
+Los videos muestran las pantallas en modo oscuro en una instancia aislada, con personas,
+salas y documentos de demostración. Cada escena combina la captura, el cursor
+y el texto del paso en HyperFrames. Las operaciones sensibles se explican sobre
+los controles del módulo o un resultado simulado.
+
+Para actualizar los videos, compila los recursos de Vite y ejecuta
+`node scripts/documentation/record.mjs` desde la raíz. Define
+`VELVET_PUPPETEER` con la ubicación de Puppeteer, `VELVET_CHROME` con el
+ejecutable Chromium y `VELVET_HYPERFRAMES` con la CLI de HyperFrames.
+Puedes pasar las claves de los módulos como argumentos para regenerar solo
+esas guías. El script crea su propia base SQLite temporal. Deja los MP4 en
+`resources/documentation/videos`, donde Laravel los sirve con los permisos
+de cada módulo.
+
+Solo Super Administrador puede publicar o retirar anexos desde Documentación
+y cambiar la disponibilidad global de las visitas guiadas.
+
 ## 1. Accesos y roles
 
 Los roles y permisos se mantienen en
@@ -22,7 +50,11 @@ roles; sus permisos son la unión de los permisos otorgados por cada rol.
 | Monitor | Portal con rooms y modelos asignadas. |
 | Modelo | Portal propio, reservas y documentos propios. |
 | Candidato | Aplicación y pasos públicos autorizados. |
-| Director de Operaciones, Marketing, Finanzas, Compliance y Soporte | Accesos especializados según sus permisos. |
+| Director de Operaciones | Supervisa equipos, salas, operación y el seguimiento documental autorizado. |
+| Marketing | Consulta las secciones habilitadas. El permiso de marketing no habilita una pantalla de campañas en el menú actual. |
+| Finanzas | Consulta las secciones habilitadas. Las exportaciones operativas requieren un permiso específico. |
+| Compliance | Consulta validaciones y revisa documentos con los permisos concedidos. |
+| Soporte | Consulta el panel y las guías. La gestión de solicitudes se realiza desde Operación diaria cuando se le concede acceso. |
 
 El Super Administrador no depende de una lista particular de permisos:
 `User::hasPermissionTo()` le concede acceso global.
@@ -179,6 +211,33 @@ gestión de salas, reserva propia, uso propio, consulta de equipo y gestión de
 reservas/uso del equipo. Modelos y monitores cuentan con rutas de portal
 separadas según su alcance.
 
+#### Programación por lotes y conflictos de horario
+
+El portal de modelo y el portal de monitor permiten agregar varias franjas en
+una misma operación. Cada franja conserva su inicio, fin, propósito y notas.
+El lote admite hasta 24 franjas y se guarda de forma atómica: si una franja es
+inválida o entra en conflicto, no se persiste ninguna del lote.
+
+El backend interpreta los valores del selector como hora local de Bogotá
+(`America/Bogota`) y los almacena en UTC. Antes de crear una reserva bloquea la
+fila de la room y comprueba que no exista solapamiento con reservas en estado
+`SCHEDULED` o `IN_USE`. También impide que la misma modelo tenga otra room en
+la misma franja y que dos franjas del mismo lote se crucen. Las reservas
+`COMPLETED`, `CANCELLED` y `NO_SHOW` dejan de bloquear el espacio.
+
+Al crear una reserva asociada a una modelo, cada franja genera:
+
+- una entrada `room_reservation_scheduled` en su bitácora;
+- una notificación interna privada que enlaza a **Mi agenda**;
+- un evento `room.reservation.created` para refrescar agenda, bitácora y
+  dashboard;
+- un correo encolado con un archivo `.ics` individual para importar la franja
+  en Google Calendar, Apple Calendar u Outlook.
+
+El mismo comportamiento se aplica al reservar desde `/model/rooms`,
+`/monitor/rooms`, `/admin/rooms` y al crear un turno con room desde
+`/admin/operations`.
+
 ## 7. Visitas guiadas con Driver.js
 
 Las guías están definidas en `resources/js/lib/productTours.js` y se presentan
@@ -217,8 +276,17 @@ publican mediante `RealtimePublisher`. Cuando existe configuración de Ably se
 emiten eventos en los canales configurados; sin esa configuración la operación
 funciona y no se bloquea por la ausencia del servicio externo.
 
+Las reservas usan el canal existente de rooms; no requieren un canal Ably
+adicional. `room.reservation.created` se publica con el identificador de la
+modelo destinataria, por lo que la notificación privada no se muestra a otras
+modelos, monitores ni administradores. Agenda, bitácora y dashboard recargan
+sus datos al recibir el evento.
+
 Las notificaciones internas se calculan y muestran en el encabezado y pueden
-enlazar a la persona o módulo relacionado.
+enlazar a la persona o módulo relacionado. Si `VITE_ABLY_ENABLED=false`, los
+datos y la notificación persistida siguen disponibles y la interfaz funciona
+con recarga manual; para tiempo real se requiere activar Ably y mantener
+configurada la clave del servicio.
 
 ## 9. Pruebas automatizadas
 

@@ -1,6 +1,6 @@
 # Permisos operativos de Velvet Master
 
-Actualizado: 2026-10-21.
+Actualizado: 2026-11-21.
 
 ## Arquitectura y seeder responsable
 
@@ -11,6 +11,8 @@ La migración `2026_10_12_030000_adopt_spatie_permission_without_losing_legacy_a
 `RolePermissionSeeder` conserva los permisos base mediante la API aditiva de Spatie. `VelvetMasterOperationalPermissionsSeeder` crea únicamente permisos granulares de Velvet Master mediante `Permission::firstOrCreate()` y asigna con `givePermissionTo()`. Ambos limpian `PermissionRegistrar` antes y después; no revocan personalizaciones administrativas.
 
 `DatabaseSeeder` ejecuta el seeder operativo inmediatamente después del seeder base, antes de usuarios y datos de entrenamiento.
+
+Los cambios de navegación del portal no requieren volver a ejecutar seeders: el frontend usa la unión de permisos compartida por `HandleInertiaRequests` y filtra los enlaces con `resources/js/lib/authorization.js`. El backend sigue siendo la autoridad y protege cada ruta con `permission:*`; ocultar un enlace no reemplaza esa validación.
 
 ## Permisos nuevos y roles asignados
 
@@ -37,6 +39,8 @@ La migración `2026_10_12_030000_adopt_spatie_permission_without_losing_legacy_a
 | VELVET Agent | `stations.configure` | admin |
 | VELVET Agent | `stations.revoke` | admin |
 | VELVET Agent | `stations.commands` | admin |
+| Asistente IA | `ai.chat` | admin, super_admin y roles habilitados |
+| Asistente IA | `ai.manage` | admin, super_admin |
 
 El rol `super_admin` conserva su bypass global en `User::hasPermissionTo()` y no requiere pivots adicionales. Reclutamiento, modelo, candidato, marketing y soporte no reciben permisos nuevos automáticamente.
 
@@ -60,6 +64,47 @@ No se duplicaron permisos que ya existen en el seeder base:
 - Un monitor puede validar una métrica solo si posee `productivity.validate_assigned` y tiene una asignación activa con la modelo de la sesión.
 - Las simulaciones de plataformas no contactan proveedores externos. Credenciales y cuentas Studio siguen reservadas a administración.
 - `studio_accounts.assign_assigned` solo permite al monitor asociar o retirar cuentas Studio existentes de las modelos que tiene asignadas. No concede `studio_accounts.manage`, acceso a credenciales ni capacidad para crear o configurar cuentas.
+- El asistente IA solo usa consultas de lectura autorizadas. `ai.chat` permite consultar el asistente y `ai.manage` permite configurar sus modelos y activación global; ninguno convierte a la IA en ejecutora de acciones.
+
+La matriz completa del asistente, sus endpoints y el contexto que puede recibir está en `docs/AI_ASSISTANT.md`.
+
+## Portal de modelo: módulos nuevos y visibilidad por rol
+
+Los módulos incorporados desde el flujo de CD51 están disponibles para el rol `model` y aparecen en el sidebar global y en la navegación interna del portal cuando el usuario conserva el permiso correspondiente:
+
+| Módulo | Ruta | Permiso de lectura | Visible para |
+| --- | --- | --- | --- |
+| Mi tiempo | `/model/time` | `metrics.view_own` | model |
+| Bitácora | `/model/activity` | `profile.view_own` | model |
+| Agenda | `/model/agenda` | `profile.view_own` | model |
+| Solicitudes | `/model/requests` | `requests.view_own` | model |
+| Plataformas | `/model/platform-requests` | `requests.view_own` | model |
+| Mi wishlist | `/model/planning` | `planning.view_own` | model |
+| Rooms | `/model/rooms` | `rooms.view_own` | model |
+| Mi perfil | `/model/profile` | `profile.view_own` | model |
+| Documentación | `/admin/documentation` | navegación pública autenticada | model, monitor y administración |
+
+`requests.create`, `planning.manage_own`, `rooms.reserve_own` y `rooms.use_own` controlan las acciones mutables dentro de cada módulo. El rol `monitor` conserva su navegación de equipo y no recibe automáticamente los módulos personales de modelo. Los roles administrativos continúan usando sus módulos operativos según la matriz de permisos.
+
+Si un usuario pierde un permiso, el enlace desaparece del menú y el acceso directo a la ruta responde `403`. Para verificar un cambio de rol, cerrar y abrir sesión o refrescar la caché de permisos.
+
+### Cuándo ejecutar los seeders
+
+| Cambio | Acción |
+| --- | --- |
+| Solo sidebar, estilos, tours o páginas frontend | No ejecutar seeders. Compilar frontend si corresponde. |
+| Nueva instalación o catálogo base inexistente | Ejecutar `RolePermissionSeeder` y después `VelvetMasterOperationalPermissionsSeeder`. |
+| Permiso operativo nuevo en una instalación existente | Ejecutar solo `VelvetMasterOperationalPermissionsSeeder` y limpiar la caché. |
+
+En desarrollo, cuando se necesite sincronizar ambos catálogos:
+
+```bash
+php artisan db:seed --class=RolePermissionSeeder
+php artisan db:seed --class=VelvetMasterOperationalPermissionsSeeder
+php artisan permission:cache-reset
+```
+
+En producción no se debe ejecutar `RolePermissionSeeder` como actualización rutinaria. Después de las migraciones, usar únicamente el seeder operativo aprobado por la guía [DESPLIEGUE_PRODUCCION_SEGURO.md](DESPLIEGUE_PRODUCCION_SEGURO.md).
 
 ## Turnos, reservas y sesiones operativas
 
@@ -69,6 +114,19 @@ La migración `2026_10_12_080000_add_room_reservation_to_operational_sessions.ph
 - Al finalizar, cambia la reserva a `COMPLETED`, cierra asistencia y sesión, y guarda la duración efectiva.
 - Los eventos `room.reservation.updated` y `operation.attendance.updated` actualizan los paneles en tiempo real mediante Ably.
 - Las acciones realizadas en Sandbox de inducción permanecen en `TrainingRecord` y no afectan sesiones, asistencia ni métricas reales.
+
+### Reservas por lotes y notificación de modelos
+
+`rooms.reserve_own` y `rooms.manage_reservations` permiten enviar varias
+franjas desde el portal correspondiente. El backend valida el lote completo,
+bloquea la room durante la comprobación y rechaza cualquier cruce con otra
+reserva activa de la room o de la modelo. No se guardan reservas parciales.
+
+Cada reserva creada para una modelo registra actividad, crea una notificación
+dirigida únicamente al usuario de esa modelo y publica `room.reservation.created`
+en el canal de rooms. También encola `RoomReservationScheduledMail` con un
+`.ics` por franja. El worker de Laravel debe estar activo para entregar estos
+correos; Ably debe estar habilitado para recibir la actualización sin recargar.
 
 ## Verificación
 

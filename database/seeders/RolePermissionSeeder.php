@@ -57,6 +57,9 @@ class RolePermissionSeeder extends Seeder
             ['name' => 'Ver métricas asignadas', 'slug' => 'models.view_metrics', 'group' => 'Métricas'],
             ['name' => 'Ver objetivos asignados', 'slug' => 'models.view_goals', 'group' => 'Metas'],
             ['name' => 'Ver metas asignadas', 'slug' => 'goals.view_assigned', 'group' => 'Metas'],
+            ['name' => 'Ver planificación propia', 'slug' => 'planning.view_own', 'group' => 'Wishlist y estrategias'],
+            ['name' => 'Gestionar planificación propia', 'slug' => 'planning.manage_own', 'group' => 'Wishlist y estrategias'],
+            ['name' => 'Gestionar estrategias de modelos', 'slug' => 'planning.manage_team', 'group' => 'Wishlist y estrategias'],
             ['name' => 'Ver monitores del equipo', 'slug' => 'monitors.view_team', 'group' => 'Personas'],
             ['name' => 'Ver turnos asignados', 'slug' => 'shifts.view_assigned', 'group' => 'Horarios'],
             ['name' => 'Actualizar estado de turnos', 'slug' => 'shifts.update_status', 'group' => 'Horarios'],
@@ -108,6 +111,8 @@ class RolePermissionSeeder extends Seeder
             ['name' => 'Gestionar finanzas', 'slug' => 'finance.manage', 'group' => 'Finanzas'],
             ['name' => 'Gestionar compliance', 'slug' => 'compliance.manage', 'group' => 'Compliance'],
             ['name' => 'Gestionar soporte', 'slug' => 'support.manage', 'group' => 'Soporte'],
+            ['name' => 'Usar asistente IA', 'slug' => 'ai.chat', 'group' => 'Asistente IA'],
+            ['name' => 'Configurar asistente IA', 'slug' => 'ai.manage', 'group' => 'Asistente IA'],
         ];
 
         $permissions = collect($definitions)->mapWithKeys(fn (array $permission) => [
@@ -118,8 +123,8 @@ class RolePermissionSeeder extends Seeder
         $recruiting = ['dashboard.view', 'leads.view', 'leads.create', 'leads.manage', 'candidates.view', 'candidates.view_all', 'candidates.create', 'candidates.update', 'candidates.change_status', 'candidates.activate_access', 'candidates.add_note', 'candidates.schedule_interview', 'candidates.request_documents', 'candidates.approve', 'candidates.reject', 'candidates.convert', 'contracts.create', 'interviews.view', 'documents.view', 'documents.verify', 'calendar.view', 'calendar.manage'];
         $hr = ['dashboard.view', 'candidates.view', 'candidates.view_all', 'onboarding.view', 'onboarding.manage', 'documents.view', 'documents.manage', 'documents.request', 'documents.verify', 'contracts.view', 'contracts.create', 'contracts.update', 'contracts.approve', 'personal_data.view', 'personal_data.update', 'models.create_from_candidate', 'calendar.view'];
         $manager = ['dashboard.view', 'models.view_team', 'models.assign_monitor', 'models.change_monitor', 'monitors.view_team', 'shifts.view_team', 'shifts.manage_team', 'goals.create', 'goals.update', 'goals.assign', 'metrics.view_team', 'incidents.view_team', 'incidents.manage', 'rooms.view', 'rooms.manage_team', 'rooms.view_team', 'rooms.manage_reservations', 'rooms.manage_usage', 'calendar.view', 'calendar.manage', 'users.view', 'users.create', 'users.update', 'users.disable'];
-        $monitor = ['dashboard.view', 'models.view_assigned', 'models.view_metrics', 'models.add_note', 'models.add_followup', 'models.view_goals', 'shifts.view_assigned', 'shifts.update_status', 'incidents.create', 'incidents.view_assigned', 'goals.view_assigned', 'documents.view_own', 'rooms.view_team', 'rooms.manage_reservations', 'rooms.manage_usage'];
-        $model = ['dashboard.view', 'profile.view_own', 'profile.update_own', 'documents.view_own', 'shifts.view_own', 'goals.view_own', 'metrics.view_own', 'training.view', 'requests.create', 'requests.view_own', 'payments.view_own', 'rooms.view_own', 'rooms.reserve_own', 'rooms.use_own'];
+        $monitor = ['dashboard.view', 'models.view_assigned', 'models.view_metrics', 'models.add_note', 'models.add_followup', 'models.view_goals', 'planning.view_own', 'planning.manage_team', 'shifts.view_assigned', 'shifts.update_status', 'incidents.create', 'incidents.view_assigned', 'goals.view_assigned', 'documents.view_own', 'rooms.view_team', 'rooms.manage_reservations', 'rooms.manage_usage'];
+        $model = ['dashboard.view', 'profile.view_own', 'profile.update_own', 'documents.view_own', 'shifts.view_own', 'goals.view_own', 'metrics.view_own', 'planning.view_own', 'planning.manage_own', 'training.view', 'requests.create', 'requests.view_own', 'payments.view_own', 'rooms.view_own', 'rooms.reserve_own', 'rooms.use_own'];
         $candidate = ['profile.view_own', 'profile.update_own', 'documents.view_own', 'documents.upload_own', 'personal_data.view', 'personal_data.update', 'requests.create', 'requests.view_own'];
         $definitionsByRole = [
             ['name' => 'Super Administrador', 'slug' => 'super_admin', 'description' => 'Acceso global a toda la plataforma.', 'parent' => null, 'is_system' => true, 'permissions' => $all],
